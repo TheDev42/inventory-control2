@@ -133,9 +133,10 @@ const sendRentalPdf = (mode, prefix) => (req, res) => {
     'Content-Type': 'application/pdf',
     'Content-Disposition': `attachment; filename="${prefix}-${safeFilename(rental.name)}.pdf"`,
   });
-  writeRentalPdf(res, { rental, items: rows, company: COMPANY, mode });
+  // Upright A4 by default; ?orientation=landscape gives the wide layout
+  writeRentalPdf(res, { rental, items: rows, company: COMPANY, mode, orientation: req.query.orientation === 'landscape' ? 'landscape' : 'portrait' });
 };
-app.get('/api/rentals/:id/pdf', sendRentalPdf('internal', 'hire-sheet'));
+app.get('/api/rentals/:id/pdf', sendRentalPdf('internal', 'internal-hire-sheet'));
 app.get('/api/rentals/:id/client-pdf', sendRentalPdf('client', 'client-hire-list'));
 
 /* ---------- containers ---------- */

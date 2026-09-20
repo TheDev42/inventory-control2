@@ -49,8 +49,8 @@ export default async function rentalView({ el, args, isActive }) {
         </div>
         <div class="actions">
           ${active ? html`<button class="btn" data-act="pick" aria-pressed="${String(picking)}" title="Pick items from the in-stock list instead of scanning">${picking ? 'Hide item picker' : 'Add items'}</button>` : ''}
-          <a class="btn secondary" href="/api/rentals/${id}/pdf" download title="Internal hire sheet: barcodes, PAT dates and return tick-boxes">Internal PDF</a>
-          <a class="btn secondary" href="/api/rentals/${id}/client-pdf" download title="Client copy: no barcodes or PAT dates, identical items combined into quantities">Client PDF</a>
+          <a class="btn secondary" href="/api/rentals/${id}/pdf" download title="INTERNAL copy for staff: barcodes, PAT dates and return tick-boxes. Not for the client.">Internal PDF (staff)</a>
+          <a class="btn secondary" href="/api/rentals/${id}/client-pdf" download title="CLIENT copy to give the customer: no barcodes or PAT dates, identical items combined into quantities">Client PDF (customer)</a>
           <button class="btn secondary" data-act="edit">Edit details</button>
           ${active ? html`<button class="btn secondary" data-act="complete">Complete rental</button>` : html`<button class="btn secondary" data-act="reopen">Reopen</button>`}
           <button class="btn danger" data-act="delete">Delete</button>

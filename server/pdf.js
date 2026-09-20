@@ -79,8 +79,14 @@ export function safeFilename(name) {
 
 /* ---------- the two layouts ---------- */
 
+// The two copies must never be mistaken for each other: different header colour, a badge, and the label on every page footer.
 const INTERNAL = {
-  subtitle: 'Equipment hire sheet',
+  subtitle: 'Internal hire sheet',
+  label: 'INTERNAL COPY',
+  note: 'Staff use only — not for the client',
+  accent: '#2e3138',
+  pill: '#f5b83d',
+  pillInk: '#1a1a19',
   rowH: 19,
   fontSize: 8.5,
   columns: [
@@ -94,10 +100,26 @@ const INTERNAL = {
     { key: 'pat', title: 'PAT tested', w: 70 },
     { key: 'ret', title: 'Returned', w: 82 },
   ],
+  portraitColumns: [
+    { key: 'n', title: '#', w: 20, align: 'right' },
+    { key: 'barcode', title: 'Barcode', w: 54, bold: true },
+    { key: 'type', title: 'Type', w: 48 },
+    { key: 'name', title: 'Description', w: 96 },
+    { key: 'male', title: 'Male end', w: 74 },
+    { key: 'female', title: 'Female end', w: 74 },
+    { key: 'len', title: 'Length', w: 40, align: 'right' },
+    { key: 'pat', title: 'PAT tested', w: 58 },
+    { key: 'ret', title: 'Returned', w: 59 },
+  ],
 };
 
 const CLIENT = {
-  subtitle: 'Equipment hire list',
+  subtitle: 'Client hire list',
+  label: 'CLIENT COPY',
+  note: '',
+  accent: BRAND,
+  pill: '#2e9e6a',
+  pillInk: '#ffffff',
   rowH: 21,
   fontSize: 9.5,
   columns: [
@@ -107,6 +129,14 @@ const CLIENT = {
     { key: 'male', title: 'Male end', w: 130 },
     { key: 'female', title: 'Female end', w: 130 },
     { key: 'len', title: 'Length', w: 90, align: 'right' },
+  ],
+  portraitColumns: [
+    { key: 'qty', title: 'Qty', w: 36, align: 'right', bold: true },
+    { key: 'type', title: 'Type', w: 70 },
+    { key: 'name', title: 'Description', w: 170 },
+    { key: 'male', title: 'Male end', w: 100 },
+    { key: 'female', title: 'Female end', w: 100 },
+    { key: 'len', title: 'Length', w: 47, align: 'right' },
   ],
 };
 
@@ -135,7 +165,7 @@ function internalLines(items) {
       male: it.male_connector || '',
       female: it.female_connector || '',
       len: lenText(it.length_m),
-      pat: it.pat_required ? (it.last_pat_date ? fmtShort(it.last_pat_date) : 'never') : 'n/a',
+      pat: it.pat_required && it.last_pat_date ? fmtShort(it.last_pat_date) : 'N/A', // never tested and not-required both read N/A
     },
   }));
 }
@@ -161,14 +191,17 @@ export const sheetLines = { internal: internalLines, client: clientLines };
 
 /* ---------- renderer ---------- */
 
-export function writeRentalPdf(res, { rental, items, company, mode = 'internal' }) {
-  const layout = mode === 'client' ? CLIENT : INTERNAL;
+// orientation: 'portrait' (default, A4 upright) or 'landscape' (wider columns)
+export function writeRentalPdf(res, { rental, items, company, mode = 'internal', orientation = 'portrait' }) {
+  const portrait = orientation === 'portrait';
+  const base = mode === 'client' ? CLIENT : INTERNAL;
+  const layout = { ...base, columns: portrait ? base.portraitColumns : base.columns };
   const lines = sheetLines[mode === 'client' ? 'client' : 'internal'](items);
   const totalUnits = lines.reduce((s, l) => s + l.weight, 0);
   const { columns, rowH: ROW_H } = layout;
 
   const doc = new PDFDocument({
-    size: 'A4', layout: 'landscape', margin: 36, bufferPages: true,
+    size: 'A4', layout: portrait ? 'portrait' : 'landscape', margin: 36, bufferPages: true,
     info: { Title: `${layout.subtitle} - ${rental.name}`, Author: company },
   });
   doc.pipe(res);
@@ -186,7 +219,8 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal' 
   const textY = (size) => (ROW_H - size) / 2 - 0.5; // vertically centre text in a row
 
   /* ----- header block ----- */
-  doc.rect(0, 0, doc.page.width, 64).fill(BRAND);
+  const accent = layout.accent;
+  doc.rect(0, 0, doc.page.width, 64).fill(accent);
   let headX = left;
   if (logoData) {
     const img = doc.openImage(logoData);
@@ -198,8 +232,14 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal' 
   }
   doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(18).text(company, headX, 18, { lineBreak: false });
   doc.font('Helvetica').fontSize(11).text(layout.subtitle, headX, 41, { lineBreak: false });
-  doc.font('Helvetica').fontSize(9).text(`Generated ${fmtDate(new Date().toISOString())}`,
-    left, 26, { width: tableW, align: 'right', lineBreak: false });
+  // Badge top-right says which copy this is; internal copies also carry a warning line
+  doc.font('Helvetica-Bold').fontSize(11);
+  const pillW = doc.widthOfString(layout.label) + 26;
+  doc.roundedRect(left + tableW - pillW, 10, pillW, 21, 10.5).fill(layout.pill);
+  doc.fillColor(layout.pillInk).text(layout.label, left + tableW - pillW, 15.5, { width: pillW, align: 'center', lineBreak: false });
+  doc.fillColor('#ffffff').font('Helvetica').fontSize(9).text(`Generated ${fmtDate(new Date().toISOString())}`,
+    left, layout.note ? 38 : 42, { width: tableW, align: 'right', lineBreak: false });
+  if (layout.note) doc.font('Helvetica-Bold').fontSize(8.5).text(layout.note, left, 50, { width: tableW, align: 'right', lineBreak: false });
 
   let y = 82;
   doc.fillColor(INK).font('Helvetica-Bold').fontSize(16).text(rental.name, left, y, { width: tableW, lineBreak: false });
@@ -211,11 +251,15 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal' 
     ? [['Customer', rental.customer || '—'], ['Hire dates', dates], ['Total items', String(totalUnits)]]
     : [['Customer', rental.customer || '—'], ['Hire dates', dates],
       ['Status', rental.status === 'completed' ? 'Completed' : 'Active'], ['Items', String(totalUnits)]];
-  const metaW = tableW / meta.length;
+  // Hire dates are the longest value, so that slot gets twice the width (matters on the narrow portrait page)
+  const weights = meta.map(([label]) => (label === 'Hire dates' ? 2 : 1));
+  const weightSum = weights.reduce((a, w) => a + w, 0);
+  let mx = left;
   meta.forEach(([label, value], i) => {
-    const x = left + i * metaW;
-    doc.fillColor(MUTED).font('Helvetica').fontSize(8).text(label.toUpperCase(), x, y, { width: metaW - 8, lineBreak: false });
-    doc.fillColor(INK).font('Helvetica-Bold').fontSize(10.5).text(fit(value, metaW - 8), x, y + 11, { width: metaW - 8, lineBreak: false });
+    const w = (tableW * weights[i]) / weightSum;
+    doc.fillColor(MUTED).font('Helvetica').fontSize(8).text(label.toUpperCase(), mx, y, { width: w - 8, lineBreak: false });
+    doc.fillColor(INK).font('Helvetica-Bold').fontSize(10.5).text(fit(value, w - 8), mx, y + 11, { width: w - 8, lineBreak: false });
+    mx += w;
   });
   y += 34;
 
@@ -251,7 +295,7 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal' 
 
   /* ----- table ----- */
   const drawHead = () => {
-    doc.rect(left, y, tableW, 19).fill(BRAND);
+    doc.rect(left, y, tableW, 19).fill(accent);
     doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8);
     let x = left;
     for (const c of columns) {
@@ -278,7 +322,7 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal' 
         ensure(ROW_H * 2);
         const catCount = lines.filter((x) => x.category === l.category).reduce((s, x) => s + x.weight, 0);
         doc.rect(left, y, tableW, ROW_H).fill(BAND);
-        doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(9)
+        doc.fillColor(accent).font('Helvetica-Bold').fontSize(9)
           .text(`${l.category}  ·  ${catCount} item${catCount === 1 ? '' : 's'}`, left + 4, y + textY(9), { lineBreak: false });
         y += ROW_H;
         lastCat = l.category;
@@ -339,7 +383,9 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal' 
     const oldBottom = doc.page.margins.bottom;
     doc.page.margins.bottom = 0; // otherwise text this low triggers an automatic new page
     doc.font('Helvetica').fontSize(8).fillColor(MUTED);
-    doc.text(`${company}  ·  ${rental.name}`, left, doc.page.height - 26, { width: tableW / 2, lineBreak: false });
+    doc.text(`${company}  ·  ${rental.name}  ·  `, left, doc.page.height - 26, { width: tableW / 2, lineBreak: false, continued: true });
+    doc.font('Helvetica-Bold').fillColor(layout.accent).text(layout.label, { lineBreak: false, continued: false });
+    doc.font('Helvetica').fillColor(MUTED);
     doc.text(`Page ${i - range.start + 1} of ${range.count}`, left + tableW / 2, doc.page.height - 26,
       { width: tableW / 2, align: 'right', lineBreak: false });
     doc.page.margins.bottom = oldBottom;
