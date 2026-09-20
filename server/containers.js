@@ -1,6 +1,7 @@
-import { all, get, run, tx, nowIso, logEvent, HttpError } from './db.js';
+import { all, get, run, tx, nowIso, today, logEvent, HttpError } from './db.js';
 import { barcodeTaken, itemSelect, getItem } from './items.js';
 import { normalizeBarcode } from './catalog.js';
+import { contentsLines } from './label.js';
 
 const str = (v) => {
   if (v === undefined || v === null) return null;
@@ -88,4 +89,21 @@ export function emptyContainer(id) {
   const res = run('UPDATE items SET container_id = NULL, updated_at = ? WHERE container_id = ?', nowIso(), id);
   logEvent({ action: 'unstored', container, detail: `Emptied ${container.name} (${res.changes} items)` });
   return res.changes;
+}
+
+// Starting values for the "print label" form. If everything out of this case belongs to one rental, its client, event
+// name and start date are filled in; the contents are the items currently in the case, counted by description.
+export function labelDefaults(id) {
+  const { container, items } = containerDetail(id);
+  const rentalIds = [...new Set(items.filter((i) => i.status === 'on_rental' && i.rental_id).map((i) => i.rental_id))];
+  const rental = rentalIds.length === 1 ? get('SELECT * FROM rentals WHERE id = ?', rentalIds[0]) : null;
+  return {
+    client: rental?.customer || '',
+    event: rental?.name || '',
+    date: rental?.start_date || today(),
+    box: '',
+    contents: contentsLines(items).join('\n'),
+    name: container.name,
+    barcode: container.barcode,
+  };
 }

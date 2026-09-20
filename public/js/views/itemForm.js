@@ -31,18 +31,31 @@ export default async function itemFormView({ el, args, query }) {
   const barcodeInput = $('[name=barcode]', form);
   if (!editId) barcodeInput.focus();
 
-  // Scanning while this page is open fills the barcode box (and warns if that code is already in the system).
-  setInterceptor(async (code) => {
+  // True (with a warning) when that code already belongs to another item
+  async function warnIfTaken(code) {
     let exists = null;
     try { exists = await api.get(`/api/items/lookup/${encodeURIComponent(code)}`); } catch { /* not found is what we want */ }
-    if (exists && exists.id !== editId) {
-      play('warn');
-      toast(`${code} is already in the system (${exists.category.toLowerCase()} ${exists.type})`, 'error', 5000);
-    } else {
-      barcodeInput.value = code;
-      play('lookup');
-    }
+    if (!exists || exists.id === editId) return false;
+    play('warn');
+    toast(`${code} is already in the system (${exists.category.toLowerCase()} ${exists.type})`, 'error', 5000);
     return true;
+  }
+
+  // Scanning while this page is open fills the barcode box (and warns if that code is already in the system).
+  setInterceptor(async (code) => {
+    if (!(await warnIfTaken(code))) { barcodeInput.value = code; play('lookup'); }
+    return true;
+  });
+
+  // A scanner types the code and then presses Enter. Enter in the barcode box must NOT save the form: it just checks
+  // the code and moves on to the next field (use the Save buttons to save).
+  barcodeInput.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const code = barcodeInput.value.trim();
+    if (code && await warnIfTaken(code)) { barcodeInput.select(); return; }
+    if (code) play('lookup');
+    $('[name=name]', form)?.focus();
   });
 
   let submitter = null;

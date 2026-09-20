@@ -12,6 +12,7 @@ import * as containers from './containers.js';
 import { handleScan } from './scan.js';
 import { dashboard } from './dashboard.js';
 import { writeRentalPdf, safeFilename } from './pdf.js';
+import { writeLabelPdf, code128B, contentsLines } from './label.js';
 
 const app = express();
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -145,6 +146,26 @@ app.post('/api/containers', (req, res) => res.status(201).json(containers.create
 app.get('/api/containers/:id', (req, res) => res.json(containers.containerDetail(id(req))));
 app.put('/api/containers/:id', (req, res) => res.json(containers.updateContainer(id(req), req.body || {})));
 app.delete('/api/containers/:id', (req, res) => { containers.deleteContainer(id(req)); res.json({ ok: true }); });
+// 4" x 6" case label. Query: client, event, date (YYYY-MM-DD), box, contents (one line per row; leave the parameter out
+// to use what is in the case), download=1 to save instead of opening.
+app.get('/api/containers/:id/label-defaults', (req, res) => res.json(containers.labelDefaults(id(req))));
+app.get('/api/containers/:id/label.pdf', (req, res) => {
+  const { container, items: inside } = containers.containerDetail(id(req));
+  try { code128B(container.barcode); } catch (err) { throw new HttpError(400, `${err.message} (container ${container.barcode})`); }
+  const q = req.query;
+  const text = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+  const contents = typeof q.contents === 'string'
+    ? q.contents.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim().slice(0, 120)).filter(Boolean).slice(0, 80)
+    : contentsLines(inside);
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `${q.download === '1' ? 'attachment' : 'inline'}; filename="label-${safeFilename(container.name)}.pdf"`,
+  });
+  writeLabelPdf(res, {
+    company: COMPANY, barcode: container.barcode, name: container.name,
+    client: text(q.client, 60), event: text(q.event, 60), date: text(q.date, 20), box: text(q.box, 20), contents,
+  });
+});
 app.post('/api/containers/:id/empty', (req, res) => res.json({ removed: containers.emptyContainer(id(req)) }));
 
 /* ---------- activity + backup ---------- */

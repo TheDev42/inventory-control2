@@ -80,7 +80,7 @@ export default async function dashboardView({ el, isActive }) {
         ${kpi('On rental', t.on_rental, { href: '#/inventory?status=on_rental', color: '--s2' })}
         ${kpi('In containers', t.in_containers, { href: '#/containers', note: plural(t.containers, 'container') })}
         ${kpi('Lost', t.lost, { href: '#/inventory?status=lost', color: '--s5' })}
-        ${kpi('Disassembled / repair', t.disassembled + t.repair, { href: '#/inventory?status=disassembled', color: '--s4', note: `${t.disassembled} disassembled · ${t.repair} repair` })}
+        ${kpi('Disassembled / repair', t.disassembled + t.repair, { href: '#/inventory?status=repair', color: '--s4', note: `${t.disassembled} disassembled · ${t.repair} repair` })}
         ${kpi('PAT needs attention', patAttention, { href: '#/pat', note: `${d.pat.overdue} overdue · ${d.pat.failed} failed · ${d.pat.never} never tested` })}
       </div>
 

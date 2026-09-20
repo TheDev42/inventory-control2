@@ -378,14 +378,15 @@ table.data tbody tr.pk-blocked td { opacity: .55; }
   .cards table.data td { padding: 0; border: 0; } /* beats the desktop cell padding/border */
   .cards td:empty { display: none; }
 
-  /* inventory: barcode + date on top, then item, ends, status | PAT */
-  .inventory-table tbody tr[data-id] { grid-template-columns: 1fr auto; grid-template-areas: "bc ad" "it it" "en en" "st pa"; }
+  /* inventory: barcode + date on top, then item, ends | length, status | PAT */
+  .inventory-table tbody tr[data-id] { grid-template-columns: 1fr auto; grid-template-areas: "bc ad" "it it" "en le" "st pa"; }
   .inventory-table td:nth-child(1) { grid-area: bc; }
   .inventory-table td:nth-child(2) { grid-area: it; }
   .inventory-table td:nth-child(3) { grid-area: en; }
-  .inventory-table td:nth-child(4) { grid-area: st; }
-  .inventory-table td:nth-child(5) { grid-area: pa; justify-self: end; text-align: right; }
-  .inventory-table td:nth-child(6) { grid-area: ad; justify-self: end; color: var(--ink-2); font-size: .8rem; }
+  .inventory-table td:nth-child(4) { grid-area: le; justify-self: end; color: var(--ink-2); }
+  .inventory-table td:nth-child(5) { grid-area: st; }
+  .inventory-table td:nth-child(6) { grid-area: pa; justify-self: end; text-align: right; }
+  .inventory-table td:nth-child(7) { grid-area: ad; justify-self: end; color: var(--ink-2); font-size: .8rem; }
 
   /* rental lines: barcode + status, item, ends, PAT + date, actions */
   .rental-lines tbody tr { grid-template-columns: auto 1fr; grid-template-areas: "bc st" "ty de" "en en" "pa ad" "ac ac"; }

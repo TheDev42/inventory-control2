@@ -1,10 +1,10 @@
 import { api, html, mount, $, $$, qs, debounce, cap, fmtDate, statusBadge, patBadge, ends, itemTitle, plural } from '../util.js';
 import { app } from '../state.js';
 
-// The table stacks related details into one cell so it fits without sideways scrolling. Clicking a header sorts by
-// its main field; every other field can still be sorted from the "Sort by" list in the toolbar.
+// The table stacks related details into one cell so it fits without sideways scrolling (ends and length each get their
+// own column). Clicking a header sorts by its main field; every other field can still be sorted from the "Sort by" list.
 const COLUMNS = [
-  ['barcode', 'Barcode'], ['category', 'Item'], ['male', 'Ends & length'], ['status', 'Status & location'], ['pat', 'PAT'], ['created', 'Added'],
+  ['barcode', 'Barcode'], ['category', 'Item'], ['male', 'Ends'], ['length', 'Length'], ['status', 'Status & location'], ['pat', 'PAT'], ['created', 'Added'],
 ];
 const SORT_OPTIONS = [
   ['barcode', 'Barcode'], ['category', 'Category'], ['type', 'Type'], ['name', 'Description'],
@@ -94,7 +94,8 @@ export default async function inventoryView({ el, query, isActive }) {
           <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : it.status === 'sold' ? 'is-sold' : ''}" data-id="${it.id}">
             <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
             <td><div class="cell-main">${itemTitle(it)}</div>${it.name ? html`<div class="cell-sub">${it.name}</div>` : ''}</td>
-            <td>${ends(it)}${it.length_m != null ? html`<div class="cell-sub">${it.length_m} m</div>` : ''}</td>
+            <td>${ends(it)}</td>
+            <td class="nowrap">${it.length_m != null ? `${it.length_m} m` : ''}</td>
             <td>${statusBadge(it.status)}
               ${it.rental_id ? html`<div class="cell-sub">Rental: <a href="#/rentals/${it.rental_id}">${it.rental_name}</a></div>` : ''}
               ${it.container_id ? html`<div class="cell-sub">Container: <a href="#/containers/${it.container_id}">${it.container_name}</a></div>` : ''}</td>
