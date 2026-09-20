@@ -8,7 +8,7 @@ Barcode inventory, rentals and PAT tracking for an events / power / lighting / s
 docker compose up -d --build
 ```
 
-Open `http://<server>` (port 80, so no port number is needed). Data lives in the `inventory-data` Docker volume (SQLite), so it survives rebuilds.
+Open `http://<server>` (port 80, so no port number is needed). The database (SQLite) is the file **`data/inventory.db`** in this project folder, next to `docker-compose.yml`, so it survives rebuilds and is easy to find. (`data/` is git-ignored, so it is never committed.)
 
 Settings are in `docker-compose.yml`:
 
@@ -20,9 +20,20 @@ Settings are in `docker-compose.yml`:
 | `BARCODE_DIGITS` | Barcode width, default `5` (`00001`). Numeric codes shorter than this are padded with leading zeros; `0` turns padding off |
 | `AUTH_USER` / `AUTH_PASS` | Optional. Set both to require a login (basic auth). **Do this if the server is reachable from the internet, and put it behind HTTPS.** |
 
-**Backups:** the *Backup* button (bottom of the sidebar) downloads a copy of the database. To restore, stop the container and copy the file to `/data/inventory.db` in the volume.
+**Backups:** the *Backup* button (bottom of the sidebar) downloads a copy of the database. To restore, stop the container (`docker compose down`) and put the file at `data/inventory.db`. If you copy the file by hand instead, stop the app first (or copy `inventory.db-wal` and `inventory.db-shm` with it, which the app keeps beside it while running).
 
-If you swap the named volume for a bind mount (`./data:/data`), make the folder writable by uid 1000 (`chown 1000:1000 data`), because the container runs as the unprivileged `node` user.
+The first `docker compose up` also runs a tiny one-off `data-perms` helper that creates `data/` and makes it writable by the app's unprivileged user (uid 1000); it exits straight away, which is normal.
+
+**Moving from the old Docker volume:** earlier versions kept the database in a Docker volume called `inventory-data`. To bring that data across, run this once from the project folder before starting the new version:
+
+```bash
+docker compose down
+mkdir -p data
+docker run --rm -v inventory-data:/from -v "$(pwd)/data":/to alpine sh -c "cp -a /from/. /to/ && chown -R 1000:1000 /to"
+docker compose up -d --build
+```
+
+(On Windows PowerShell use `${PWD}\data` instead of `$(pwd)/data`.) The old volume is left untouched; remove it later with `docker volume rm inventory-data` once you have checked everything is there.
 
 ## Scanning
 

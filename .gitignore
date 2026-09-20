@@ -1,0 +1,3 @@
+# The database lives here (data/inventory.db). It is your business data: keep it out of git.
+data/
+node_modules/

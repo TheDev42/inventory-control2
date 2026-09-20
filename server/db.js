@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -9,7 +10,9 @@ export class HttpError extends Error {
   }
 }
 
-const dataDir = process.env.DATA_DIR || path.resolve('data');
+// Default: the "data" folder in the project root (next to package.json), wherever the server is started from.
+// Docker sets DATA_DIR=/data, which docker-compose.yml maps to that same folder.
+const dataDir = process.env.DATA_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 export const DATA_DIR = dataDir;
 export const DB_PATH = path.join(dataDir, 'inventory.db');

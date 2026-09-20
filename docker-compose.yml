@@ -1,11 +1,23 @@
 services:
+  # One-off helper: creates ./data if needed and makes it writable by the app's user (uid 1000) before the app starts.
+  # It runs, exits, and stays stopped; that is normal.
+  data-perms:
+    image: alpine:3
+    command: sh -c "chown -R 1000:1000 /data || true"
+    volumes:
+      - ./data:/data
+    restart: "no"
+
   inventory:
     build: .
     container_name: inventory-tracker
+    depends_on:
+      data-perms:
+        condition: service_completed_successfully
     ports:
       - "80:3000"   # host port 80 -> the app's port 3000 inside the container
     volumes:
-      - inventory-data:/data
+      - ./data:/data   # the database lives here: the "data" folder next to this file (data/inventory.db)
     environment:
       TZ: Europe/London
       # Shown at the top of exported PDFs and in the sidebar. The logo is server/assets/FaderUp-Logo-white.png
@@ -16,6 +28,3 @@ services:
       # AUTH_USER: admin
       # AUTH_PASS: change-me
     restart: unless-stopped
-
-volumes:
-  inventory-data:
