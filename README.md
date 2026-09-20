@@ -8,7 +8,7 @@ Barcode inventory, rentals and PAT tracking for an events / power / lighting / s
 docker compose up -d --build
 ```
 
-Open `http://<server>:3000`. Data lives in the `inventory-data` Docker volume (SQLite), so it survives rebuilds.
+Open `http://<server>` (port 80, so no port number is needed). Data lives in the `inventory-data` Docker volume (SQLite), so it survives rebuilds.
 
 Settings are in `docker-compose.yml`:
 
