@@ -15,12 +15,11 @@ import patView from './views/pat.js';
 import bulkView from './views/bulk.js';
 
 const NAV = [
-  ['dashboard', 'Dashboard', '/dashboard'],
-  ['inventory', 'Inventory', '/inventory'],
-  ['rentals', 'Rentals', '/rentals'],
-  ['containers', 'Containers', '/containers'],
-  ['pat', 'PAT testing', '/pat'],
-  ['bulk', 'Bulk add', '/bulk'],
+  ['Overview', [['dashboard', 'Dashboard', '/dashboard']]],
+  ['Equipment', [['inventory', 'Inventory', '/inventory'], ['bulk', 'Bulk add', '/bulk']]],
+  ['Storage', [['containers', 'Containers', '/containers']]],
+  ['Rentals', [['rentals', 'Rentals', '/rentals']]],
+  ['Compliance', [['pat', 'PAT testing', '/pat']]],
 ];
 
 const ROUTES = [
@@ -76,13 +75,11 @@ async function route() {
 }
 
 function initTheme() {
-  const apply = (t) => { if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; };
-  apply(store.get('theme', null));
+  const apply = (t) => { document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; };
+  // Dark is the default look; the button flips to light and remembers the choice.
+  apply(store.get('theme', 'dark'));
   $('#theme-btn').addEventListener('click', () => {
-    const isDark = document.documentElement.dataset.theme
-      ? document.documentElement.dataset.theme === 'dark'
-      : matchMedia('(prefers-color-scheme: dark)').matches;
-    const next = isDark ? 'light' : 'dark';
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
     store.set('theme', next);
     apply(next);
   });
@@ -90,14 +87,17 @@ function initTheme() {
 
 async function boot() {
   initTheme();
-  mount($('#nav'), html`${NAV.map(([id, label, path]) => html`<a href="#${path}" data-nav="${id}">${icon(id)}<span class="label">${label}</span></a>`)}`);
+  mount($('#nav'), html`${NAV.map(([title, links]) => html`<div class="nav-section"><div class="nav-section-title">${title}</div>
+    ${links.map(([id, label, path]) => html`<a href="#${path}" data-nav="${id}">${icon(id)}<span class="label">${label}</span></a>`)}</div>`)}`);
   try {
     await loadMeta();
   } catch (err) {
     mount($('#view'), errorBox(err));
     return;
   }
-  $('#brand-name').textContent = app.meta.company || 'Stock Tracker';
+  // Two-tone name like the Inventory Control logo: first word plain, the rest in the accent colour
+  const [first, ...rest] = (app.meta.company || 'Stock Tracker').split(' ');
+  mount($('#brand-name'), html`${first}${rest.length ? html` <span>${rest.join(' ')}</span>` : ''}`);
   initScanner();
   document.addEventListener(CHANGED, () => current?.refresh?.());
   window.addEventListener('hashchange', route);

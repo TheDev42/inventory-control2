@@ -1,4 +1,5 @@
 import { all, get, run, tx, nowIso, logEvent, HttpError } from './db.js';
+import { STATUS_LABEL } from './catalog.js';
 import { itemSelect, getItem, returnItem } from './items.js';
 
 const str = (v) => {
@@ -116,6 +117,55 @@ export function deleteRental(id) {
     run('DELETE FROM rentals WHERE id = ?', id);
     logEvent({ action: 'rental_deleted', detail: `Rental "${rental.name}" deleted` });
   });
+}
+
+/* ---------- check out (add to rental): shared by the scanner and the manual picker ---------- */
+
+const PAT_WARN = { never: 'never PAT tested', overdue: 'PAT overdue' };
+
+export function checkout(item, rental, viaContainer) {
+  if (item.status === 'on_rental') {
+    if (item.rental_id === rental.id) return { state: 'duplicate', text: 'already on this rental' };
+    return { state: 'blocked', text: `already out on "${item.rental_name}" — return it first` };
+  }
+  if (item.status === 'lost' || item.status === 'disassembled') {
+    return { state: 'blocked', text: `marked ${STATUS_LABEL[item.status].toUpperCase()} — scan it in Return mode to restore it first` };
+  }
+  if (item.status === 'repair') return { state: 'blocked', text: 'marked REPAIR — cannot go out' };
+  if (item.pat_status === 'failed') return { state: 'blocked', text: 'PAT FAILED — cannot go out' };
+
+  tx(() => {
+    run('INSERT INTO rental_items (rental_id, item_id, added_at) VALUES (?, ?, ?)', rental.id, item.id, nowIso());
+    // Scanned individually = physically pulled out of its container; via a container it stays packed in it.
+    run(`UPDATE items SET status = 'on_rental', rental_id = ?, container_id = ${viaContainer ? 'container_id' : 'NULL'}, updated_at = ? WHERE id = ?`,
+      rental.id, nowIso(), item.id);
+    logEvent({
+      action: 'out', item, rental,
+      detail: `Out on "${rental.name}"${viaContainer ? ` (in ${item.container_name})` : ''}`,
+    });
+  });
+  return { state: 'added', warning: PAT_WARN[item.pat_status] };
+}
+
+// Manual picker: add several chosen items at once. Items that cannot go out are skipped with a reason.
+export function addItemsToRental(rentalId, itemIds) {
+  const rental = getRental(rentalId);
+  if (!rental) throw new HttpError(404, 'Rental not found');
+  if (rental.status !== 'active') throw new HttpError(409, `"${rental.name}" is completed — reopen it to add items`);
+  if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
+  if (itemIds.length > 1000) throw new HttpError(400, 'Too many items selected at once (max 1000)');
+
+  let added = 0;
+  let warned = 0;
+  const skipped = [];
+  for (const raw of new Set(itemIds.map(Number))) {
+    const item = Number.isInteger(raw) ? getItem(raw) : null;
+    if (!item) { skipped.push({ id: raw, barcode: String(raw), reason: 'item not found' }); continue; }
+    const r = checkout(item, rental, false);
+    if (r.state === 'added') { added++; if (r.warning) warned++; }
+    else skipped.push({ id: item.id, barcode: item.barcode, reason: r.text });
+  }
+  return { added, warned, skipped };
 }
 
 // Undo a mistaken scan-out: takes the item off the rental as if it was never added

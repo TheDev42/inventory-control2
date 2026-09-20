@@ -4,6 +4,7 @@ import {
 import { app } from '../state.js';
 import { state as scanState, setMode } from '../scanner.js';
 import { errorBox } from '../ui.js';
+import { createPicker } from './rentalPicker.js';
 
 // What is this line of the rental right now?
 const lineState = (it) => {
@@ -17,6 +18,8 @@ export default async function rentalView({ el, args, isActive }) {
   let filter = 'all';
   let editing = false;
   let entered = false;
+  let picking = false;
+  const picker = createPicker({ rentalId: id, onClose: () => { picking = false; load(); } });
 
   async function load() {
     let d;
@@ -45,7 +48,8 @@ export default async function rentalView({ el, args, isActive }) {
           ${r.notes ? html`<div class="muted" style="margin-top:6px;white-space:pre-wrap">${r.notes}</div>` : ''}
         </div>
         <div class="actions">
-          <a class="btn" href="/api/rentals/${id}/pdf" download title="Internal hire sheet: barcodes, PAT dates and return tick-boxes">Internal PDF</a>
+          ${active ? html`<button class="btn" data-act="pick" aria-pressed="${String(picking)}" title="Pick items from the in-stock list instead of scanning">${picking ? 'Hide item picker' : 'Add items'}</button>` : ''}
+          <a class="btn secondary" href="/api/rentals/${id}/pdf" download title="Internal hire sheet: barcodes, PAT dates and return tick-boxes">Internal PDF</a>
           <a class="btn secondary" href="/api/rentals/${id}/client-pdf" download title="Client copy: no barcodes or PAT dates, identical items combined into quantities">Client PDF</a>
           <button class="btn secondary" data-act="edit">Edit details</button>
           ${active ? html`<button class="btn secondary" data-act="complete">Complete rental</button>` : html`<button class="btn secondary" data-act="reopen">Reopen</button>`}
@@ -75,7 +79,9 @@ export default async function rentalView({ el, args, isActive }) {
             <button class="tab" data-scan="out" aria-pressed="${String(scanningHere && scanState.mode === 'out')}">Scan OUT</button>
             <button class="tab" data-scan="return" aria-pressed="${String(scanState.mode === 'return')}">Scan IN (return)</button>
           </span>
-        </div></div>` : html`<div class="notice warn">This rental is completed. Reopen it to scan more items onto it.</div>`}
+        </div></div>` : html`<div class="notice warn">This rental is completed. Reopen it to add more items to it.</div>`}
+
+      ${active && picking ? html`<div id="picker-host" style="margin-bottom:16px"></div>` : ''}
 
       <div class="kpis">
         <div class="kpi"><div class="label">Items on sheet</div><div class="value">${counts.all}</div></div>
@@ -101,7 +107,9 @@ export default async function rentalView({ el, args, isActive }) {
             <td class="nowrap right">${st === 'out' ? html`<button class="btn secondary small" data-return="${it.id}">Return</button> <button class="btn ghost small" data-remove="${it.id}" title="Take it off this rental (undo a mistaken scan)">Remove</button>`
               : st === 'lost' && it.outcome === null ? html`<button class="btn secondary small" data-return="${it.id}">Found</button>` : ''}</td>
           </tr>`; })}</tbody></table></div>`
-        : html`<div class="card"><div class="empty">${items.length ? 'Nothing in this view.' : active ? 'No items yet — scan a barcode to add the first one.' : 'No items were scanned onto this rental.'}</div></div>`}`);
+        : html`<div class="card"><div class="empty">${items.length ? 'Nothing in this view.' : active ? 'No items yet — scan a barcode, or use “Add items” to pick them from the list.' : 'No items were added to this rental.'}</div></div>`}`);
+
+    if (active && picking) picker.mount($('#picker-host', el));
   }
 
   async function run(fn, okMsg) {
@@ -121,6 +129,11 @@ export default async function rentalView({ el, args, isActive }) {
 
     const act = t.closest('[data-act]')?.dataset.act;
     if (act === 'edit') { editing = !editing; load(); }
+    else if (act === 'pick') {
+      picking = !picking;
+      await load();
+      if (picking) { $('#picker-host', el)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); picker.focus(); }
+    }
     else if (act === 'reopen') run(() => api.post(`/api/rentals/${id}/reopen`), 'Rental reopened');
     else if (act === 'complete') {
       const { items } = await api.get(`/api/rentals/${id}`);

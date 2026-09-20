@@ -38,7 +38,7 @@ A USB / Bluetooth barcode scanner works like a keyboard: it types the code and p
 
 Each outcome has its own sound (open **Sound** in the bar to hear them all): out, return, store, found, PAT pass, PAT fail, lookup, duplicate/warn, blocked, unknown barcode, and "out but PAT needs attention".
 
-Rules: an item must be scanned OUT onto a rental (an unknown barcode can be added straight from the scan bar). Items that are lost, disassembled, in repair, PAT-failed, or already out on another rental are blocked from going out.
+Rules: an item must be scanned OUT onto a rental or picked from the rental's **Add items** list (an unknown barcode can be added straight from the scan bar). Items that are lost, disassembled, in repair, PAT-failed, or already out on another rental are blocked from going out.
 
 ## Barcodes
 
@@ -49,7 +49,7 @@ Barcodes are zero-padded numbers like `00001`, shared by items and containers (a
 - **Items:** category → type (Power: cable/adapter/splitter; Lighting: cable/light/unit; Sound: cable/audio), male & female connector for cables/adapters/splitters, length, description
 - **Inventory:** search across every field, sort by any column, filters, CSV export
 - **Bulk add:** scan or paste barcodes, generate a numbered range (e.g. 00101–00150), or import a CSV
-- **Rentals:** create, scan items in and out, complete/reopen, and export two PDFs from the rental page:
+- **Rentals:** create, scan items in and out (or click **Add items** on a rental to search/filter the in-stock list, tick the ones you want and add them in one go), complete/reopen, and export two PDFs from the rental page:
   - **Internal PDF**: every item with its barcode, PAT date and a return tick-box. Sorted by type, then male end, female end, length and description, so identical kit sits together rather than in barcode order
   - **Client PDF**: no barcodes, PAT dates or notes. Identical items are combined into one line with a quantity (4 × 10m 16A lead shows as "4"). Items only combine if type, description, both ends and length all match
 - **Containers:** own barcode, scan items in, scan the container to send its contents out

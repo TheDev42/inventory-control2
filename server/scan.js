@@ -4,7 +4,7 @@ import {
   itemSelect, getItem, getItemByBarcode, getContainerByBarcode, describeItem,
   returnItem, recordPat,
 } from './items.js';
-import { getRental } from './rentals.js';
+import { getRental, checkout } from './rentals.js';
 
 /*
  * One endpoint handles every scan. The client sends the barcode plus the current mode, and gets back a
@@ -19,33 +19,7 @@ const result = (tone, message, extra = {}) => ({
   ...extra,
 });
 
-const PAT_WARN = { never: 'never PAT tested', overdue: 'PAT overdue' };
-
-/* ---------- check out (add to rental) ---------- */
-
-function checkout(item, rental, viaContainer) {
-  if (item.status === 'on_rental') {
-    if (item.rental_id === rental.id) return { state: 'duplicate', text: 'already on this rental' };
-    return { state: 'blocked', text: `already out on "${item.rental_name}" — return it first` };
-  }
-  if (item.status === 'lost' || item.status === 'disassembled') {
-    return { state: 'blocked', text: `marked ${STATUS_LABEL[item.status].toUpperCase()} — scan it in Return mode to restore it first` };
-  }
-  if (item.status === 'repair') return { state: 'blocked', text: 'marked REPAIR — cannot go out' };
-  if (item.pat_status === 'failed') return { state: 'blocked', text: 'PAT FAILED — cannot go out' };
-
-  tx(() => {
-    run('INSERT INTO rental_items (rental_id, item_id, added_at) VALUES (?, ?, ?)', rental.id, item.id, nowIso());
-    // Scanned individually = physically pulled out of its container; via a container it stays packed in it.
-    run(`UPDATE items SET status = 'on_rental', rental_id = ?, container_id = ${viaContainer ? 'container_id' : 'NULL'}, updated_at = ? WHERE id = ?`,
-      rental.id, nowIso(), item.id);
-    logEvent({
-      action: 'out', item, rental,
-      detail: `Out on "${rental.name}"${viaContainer ? ` (in ${item.container_name})` : ''}`,
-    });
-  });
-  return { state: 'added', warning: PAT_WARN[item.pat_status] };
-}
+/* ---------- check out (add to rental) lives in rentals.js so the manual picker shares the same rules ---------- */
 
 function scanOut(item, container, { rentalId }) {
   if (!rentalId) return result('error', 'No rental selected — open a rental (or pick one in the scan bar) to scan items out');

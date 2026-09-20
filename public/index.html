@@ -10,7 +10,9 @@
 <body>
   <div class="app">
     <aside class="sidebar" id="sidebar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span id="brand-name">Stock Tracker</span></div>
+      <div class="sidebar-header">
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span id="brand-name">Stock Tracker</span></div>
+      </div>
       <nav id="nav"></nav>
       <div class="sidebar-foot">
         <button class="btn ghost small" id="theme-btn" type="button" title="Toggle light / dark">Theme</button>
@@ -24,7 +26,7 @@
           <div class="sb-modes" id="sb-modes" role="group" aria-label="Scan mode"></div>
           <div class="sb-ctx" id="sb-ctx"></div>
           <form class="sb-form" id="sb-form" autocomplete="off">
-            <input id="sb-input" type="text" inputmode="numeric" placeholder="Scan anywhere on the page, or type a barcode + Enter" aria-label="Barcode">
+            <input id="sb-input" type="text" inputmode="numeric" placeholder="Scan, or type a barcode + Enter" aria-label="Barcode">
             <button class="btn small" type="submit">Go</button>
           </form>
           <div class="sb-tools">

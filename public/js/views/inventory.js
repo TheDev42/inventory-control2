@@ -79,7 +79,7 @@ export default async function inventoryView({ el, query, isActive }) {
     const to = Math.min(data.total, (s.page + 1) * s.limit);
 
     mount($('#inv-results', el), html`
-      <div class="table-wrap"><table class="data">
+      <div class="table-wrap nowrap-cells"><table class="data">
         <thead><tr>${COLUMNS.map(([key, label, cls]) => html`<th class="sortable ${cls || ''}" data-sort="${key}" aria-sort="${s.sort === key ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'}">${label}<span class="sort-ind">${s.sort === key ? (s.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`)}</tr></thead>
         <tbody>${data.items.length ? data.items.map((it) => html`
           <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : ''}" data-id="${it.id}">

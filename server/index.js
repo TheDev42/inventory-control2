@@ -115,6 +115,8 @@ app.put('/api/rentals/:id', (req, res) => res.json(rentals.updateRental(id(req),
 app.delete('/api/rentals/:id', (req, res) => { rentals.deleteRental(id(req)); res.json({ ok: true }); });
 app.post('/api/rentals/:id/complete', (req, res) => res.json(rentals.completeRental(id(req), !!req.body?.returnAll)));
 app.post('/api/rentals/:id/reopen', (req, res) => res.json(rentals.reopenRental(id(req))));
+// Manual picker: add the chosen items to the rental in one go (same rules as scanning them OUT)
+app.post('/api/rentals/:id/items', (req, res) => res.json(rentals.addItemsToRental(id(req), req.body?.itemIds)));
 app.delete('/api/rentals/:id/items/:itemId', (req, res) => {
   res.json(rentals.removeFromRental(id(req), parseInt(req.params.itemId, 10)));
 });
