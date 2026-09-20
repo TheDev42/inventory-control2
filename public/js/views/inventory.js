@@ -91,16 +91,16 @@ export default async function inventoryView({ el, query, isActive }) {
       <div class="table-wrap cards"><table class="data inventory-table">
         <thead><tr>${COLUMNS.map(([key, label]) => html`<th class="sortable" data-sort="${key}" aria-sort="${s.sort === key ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'}">${label}<span class="sort-ind">${s.sort === key ? (s.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`)}</tr></thead>
         <tbody>${data.items.length ? data.items.map((it) => html`
-          <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : ''}" data-id="${it.id}">
+          <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : it.status === 'sold' ? 'is-sold' : ''}" data-id="${it.id}">
             <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
             <td><div class="cell-main">${itemTitle(it)}</div>${it.name ? html`<div class="cell-sub">${it.name}</div>` : ''}</td>
             <td>${ends(it)}${it.length_m != null ? html`<div class="cell-sub">${it.length_m} m</div>` : ''}</td>
             <td>${statusBadge(it.status)}
               ${it.rental_id ? html`<div class="cell-sub">Rental: <a href="#/rentals/${it.rental_id}">${it.rental_name}</a></div>` : ''}
               ${it.container_id ? html`<div class="cell-sub">Container: <a href="#/containers/${it.container_id}">${it.container_name}</a></div>` : ''}</td>
-            <td>${patBadge(it.pat_status)}
+            <td>${it.status === 'sold' ? '' : html`${patBadge(it.pat_status)}
               ${it.pat_status !== 'na' && it.next_pat_due ? html`<div class="cell-sub">Due ${fmtDate(it.next_pat_due)}</div>` : ''}
-              ${it.pat_status !== 'na' && it.last_pat_date ? html`<div class="cell-sub">Last ${fmtDate(it.last_pat_date)}</div>` : ''}</td>
+              ${it.pat_status !== 'na' && it.last_pat_date ? html`<div class="cell-sub">Last ${fmtDate(it.last_pat_date)}</div>` : ''}`}</td>
             <td class="nowrap">${fmtDate(it.created_at)}</td>
           </tr>`) : html`<tr><td colspan="${COLUMNS.length}"><div class="empty">${s.q || s.category || s.type || s.status || s.pat ? 'No items match those filters.' : 'Nothing here yet — add items one at a time or in bulk.'}</div></td></tr>`}
         </tbody></table></div>

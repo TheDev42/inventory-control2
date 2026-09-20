@@ -6,6 +6,7 @@ const STATES = [
   { key: 'repair', label: 'Repair', c: '--s7' },
   { key: 'lost', label: 'Lost', c: '--s5' },
   { key: 'disassembled', label: 'Disassembled', c: '--s4' },
+  { key: 'sold', label: 'Sold', c: '--muted' },
 ];
 
 const PAT_ROWS = [
@@ -74,7 +75,7 @@ export default async function dashboardView({ el, isActive }) {
       </div>
 
       <div class="kpis">
-        ${kpi('Total items', t.total)}
+        ${kpi('Total items', t.total, { note: t.sold ? `${t.sold} sold, kept on the register` : '' })}
         ${kpi('In stock', t.in_stock, { href: '#/inventory?status=in_stock', color: '--s1' })}
         ${kpi('On rental', t.on_rental, { href: '#/inventory?status=on_rental', color: '--s2' })}
         ${kpi('In containers', t.in_containers, { href: '#/containers', note: plural(t.containers, 'container') })}

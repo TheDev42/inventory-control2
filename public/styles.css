@@ -271,6 +271,8 @@ table.data td.num, table.data th.num { text-align: right; }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-top: 12px; flex-wrap: wrap; color: var(--ink-2); }
 tr.is-out td { background: color-mix(in srgb, var(--s2) 6%, transparent); }
 tr.is-lost td { background: color-mix(in srgb, var(--critical) 7%, transparent); }
+tr.is-sold td { color: var(--ink-2); }
+tr.is-sold .barcode { color: var(--ink-2); }
 
 /* ---------- badges ---------- */
 .badge {
@@ -284,6 +286,7 @@ tr.is-lost td { background: color-mix(in srgb, var(--critical) 7%, transparent);
 .st-lost { --c: var(--s5); }
 .st-dis { --c: var(--s4); }
 .st-repair { --c: var(--s7); }
+.st-sold { --c: var(--muted); }
 .pat-ok { --c: var(--good); }
 .pat-soon { --c: var(--warning); }
 .pat-bad { --c: var(--critical); }
@@ -295,6 +298,17 @@ tr.is-lost td { background: color-mix(in srgb, var(--critical) 7%, transparent);
 .ends .end::before { font-size: .68rem; font-weight: 700; margin-right: 5px; color: var(--muted); }
 .ends .end.m::before { content: "M"; }
 .ends .end.f::before { content: "F"; }
+.ends .end.in::before { content: "IN"; }
+.ends .outs { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ends .outs::before { content: "OUT"; font-size: .68rem; font-weight: 700; color: var(--muted); }
+.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+
+/* distro output lines in the item form */
+.outputs { display: grid; gap: 6px; }
+.output-row { display: flex; align-items: center; gap: 8px; }
+.output-row input[name="out_qty"] { width: 72px; flex: none; }
+.output-row input[name="out_connector"] { flex: 1 1 200px; max-width: 360px; }
+.output-row .times { color: var(--muted); }
 .ends .arrow { color: var(--muted); }
 
 /* ---------- forms ---------- */

@@ -1,4 +1,4 @@
-import { html, raw, $, esc, cap, itemTitle, ends, statusBadge, patBadge, fmtDate } from './util.js';
+import { html, raw, $, esc, cap, itemTitle, ends, outputsOf, statusBadge, patBadge, fmtDate } from './util.js';
 import { app } from './state.js';
 
 /* ---------- shared item form fields (used by new/edit item and bulk add) ---------- */
@@ -9,10 +9,20 @@ export const connectorDatalist = () =>
 const typeOptions = (category, selected) =>
   html`${(app.meta.catalog[category] || []).map((t) => html`<option value="${t}" ${t === selected ? 'selected' : ''}>${cap(t)}</option>`)}`;
 
+// One output line of a distro: how many of which connector
+const outputRow = (o = { qty: 1, connector: '' }) => html`<div class="output-row">
+  <input type="number" name="out_qty" min="1" max="99" value="${o.qty}" inputmode="numeric" aria-label="Quantity">
+  <span class="times" aria-hidden="true">×</span>
+  <input type="text" name="out_connector" list="connector-list" value="${o.connector}" placeholder="e.g. 16A Cee (blue)" aria-label="Output connector">
+  <button class="btn ghost small" type="button" data-remove-output aria-label="Remove this output">✕</button>
+</div>`;
+
 export function itemFields(item = {}, { barcode = true, containers = [], isNew = false } = {}) {
   const category = item.category || 'POWER';
   const type = item.type || app.meta.catalog[category][0];
   const hasEnds = app.meta.connectorTypes.includes(type);
+  const isDistro = app.meta.outputTypes.includes(type);
+  const outs = outputsOf(item);
   const patRequired = item.pat_required === undefined ? !(category === 'SOUND' && type === 'cable') : !!item.pat_required;
   return html`
     ${connectorDatalist()}
@@ -30,6 +40,12 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
         <input id="f-male" name="male_connector" type="text" list="connector-list" value="${item.male_connector || ''}" placeholder="e.g. 16A Cee (blue)"></div>
       <div class="field" data-ends ${hasEnds ? '' : 'hidden'}><label for="f-female">Female end (connector)</label>
         <input id="f-female" name="female_connector" type="text" list="connector-list" value="${item.female_connector || ''}" placeholder="e.g. 13A (BS1363)"></div>
+      <div class="field" data-distro ${isDistro ? '' : 'hidden'}><label for="f-input">Input connector (in)</label>
+        <input id="f-input" name="input_connector" type="text" list="connector-list" value="${item.input_connector || ''}" placeholder="e.g. 32A Cee (blue)"></div>
+      <div class="field wide" data-distro ${isDistro ? '' : 'hidden'}><span class="lbl">Outputs (out)</span>
+        <div class="outputs" data-outputs>${(outs.length ? outs : [undefined]).map((o) => outputRow(o))}</div>
+        <div><button class="btn secondary small" type="button" data-add-output>+ Add another output</button></div>
+        <span class="hint">One line per kind of connector, with how many there are — e.g. 6 × 16A Cee (blue) and 2 × 13A.</span></div>
       <div class="field"><label for="f-length">Length (m)</label>
         <input id="f-length" name="length_m" type="number" step="0.01" min="0" value="${item.length_m ?? ''}"></div>
       <div class="field"><span class="lbl">PAT testing</span>
@@ -58,10 +74,28 @@ export function wireItemFields(root) {
     }
     const hasEnds = app.meta.connectorTypes.includes(type.value);
     box.querySelectorAll('[data-ends]').forEach((f) => { f.hidden = !hasEnds; });
+    const isDistro = app.meta.outputTypes.includes(type.value);
+    box.querySelectorAll('[data-distro]').forEach((f) => { f.hidden = !isDistro; });
     if (box.dataset.autoPat) pat.checked = !(cat.value === 'SOUND' && type.value === 'cable');
   };
   cat.addEventListener('change', () => sync(true));
   type.addEventListener('change', () => sync(false));
+
+  // Distro outputs: add / remove lines (the last line is cleared rather than removed)
+  box.addEventListener('click', (e) => {
+    const list = $('[data-outputs]', box);
+    if (!list) return;
+    if (e.target.closest('[data-add-output]')) {
+      list.insertAdjacentHTML('beforeend', outputRow().toString());
+      list.lastElementChild.querySelector('[name=out_connector]').focus();
+      return;
+    }
+    const rm = e.target.closest('[data-remove-output]');
+    if (!rm) return;
+    const rows = list.querySelectorAll('.output-row');
+    if (rows.length > 1) rm.closest('.output-row').remove();
+    else { rows[0].querySelector('[name=out_qty]').value = 1; rows[0].querySelector('[name=out_connector]').value = ''; }
+  });
 }
 
 export function readItemFields(root) {
@@ -76,6 +110,12 @@ export function readItemFields(root) {
     pat_required: v('pat_required').checked,
     pat_interval_months: v('pat_interval_months').value,
   };
+  if (v('input_connector')) {
+    out.input_connector = v('input_connector').value.trim();
+    out.outputs = [...root.querySelectorAll('.output-row')]
+      .map((r) => ({ connector: r.querySelector('[name=out_connector]').value.trim(), qty: Number(r.querySelector('[name=out_qty]').value) || 1 }))
+      .filter((o) => o.connector); // blank lines are ignored
+  }
   if (v('barcode')) out.barcode = v('barcode').value.trim();
   if (v('container_id')) out.container_id = v('container_id').value;
   return out;

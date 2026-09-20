@@ -50,6 +50,8 @@ const HEADER_ALIASES = {
   name: 'name', description: 'name',
   male: 'male_connector', maleend: 'male_connector', maleconnector: 'male_connector',
   female: 'female_connector', femaleend: 'female_connector', femaleconnector: 'female_connector',
+  input: 'input_connector', inputconnector: 'input_connector', in: 'input_connector',
+  outputs: 'outputs', output: 'outputs', out: 'outputs',
   length: 'length_m', lengthm: 'length_m', lenm: 'length_m',
   pat: 'pat_required', patrequired: 'pat_required',
   interval: 'pat_interval_months', patinterval: 'pat_interval_months', patintervalmonths: 'pat_interval_months',
@@ -69,11 +71,12 @@ function csvToItems(text) {
   return { items, problems };
 }
 
-const CSV_TEMPLATE = 'barcode,category,type,name,male_connector,female_connector,length_m,pat_required\n' +
-  '00001,POWER,cable,10m 16A extension,16A Cee (blue),16A Cee (blue),10,yes\n' +
-  '00002,POWER,adapter,13A to 16A adapter,13A (BS1363),16A Cee (blue),,yes\n' +
-  '00003,SOUND,cable,XLR lead 5m,XLR 3-pin,XLR 3-pin,5,no\n' +
-  '00004,LIGHTING,light,LED par can,,,,yes\n';
+const CSV_TEMPLATE = 'barcode,category,type,name,male_connector,female_connector,length_m,pat_required,input_connector,outputs\n' +
+  '00001,POWER,cable,10m 16A extension,16A Cee (blue),16A Cee (blue),10,yes,,\n' +
+  '00002,POWER,adapter,13A to 16A adapter,13A (BS1363),16A Cee (blue),,yes,,\n' +
+  '00003,SOUND,cable,XLR lead 5m,XLR 3-pin,XLR 3-pin,5,no,,\n' +
+  '00004,LIGHTING,light,LED par can,,,,yes,,\n' +
+  '00005,POWER,distro,32A 8-way distro,,,,yes,32A Cee (blue),"6x 16A Cee (blue); 2x 13A (BS1363)"\n';
 
 export default async function bulkView({ el }) {
   const containers = await api.get('/api/containers');
@@ -92,7 +95,7 @@ export default async function bulkView({ el }) {
     <div id="tab-list" class="stack">
       <section class="card">
         <h2>1 · What are these items?</h2>
-        <p class="muted">Everything below is applied to every barcode in the list. Cables, adapters and splitters take a male and female end.</p>
+        <p class="muted">Everything below is applied to every barcode in the list. Cables, adapters and splitters take a male and female end; distros take one input and a list of outputs.</p>
         <div id="bulk-fields">${itemFields({}, { barcode: false, containers, isNew: true })}</div>
       </section>
       <section class="card">
@@ -122,7 +125,7 @@ export default async function bulkView({ el }) {
     <div id="tab-csv" class="stack" hidden>
       <section class="card">
         <h2>Import from CSV</h2>
-        <p class="muted">Columns: <code>barcode, category, type</code> are required; optional: <code>name, male_connector, female_connector, length_m, pat_required, pat_interval_months</code>.
+        <p class="muted">Columns: <code>barcode, category, type</code> are required; optional: <code>name, male_connector, female_connector, length_m, pat_required, pat_interval_months</code>. Distros use <code>input_connector</code> and <code>outputs</code> (e.g. <code>6x 16A Cee (blue); 2x 13A (BS1363)</code>) instead of the male/female ends.
           Category is POWER / LIGHTING / SOUND. Paste from a spreadsheet, or choose a file. Barcodes that a spreadsheet has stripped of leading zeros (12 instead of 00012) are padded back to ${app.meta.barcodeDigits || 5} digits. <a href="#" id="csv-template">Download a template</a>.</p>
         <div class="field"><label for="csv-file">CSV file</label><input id="csv-file" type="file" accept=".csv,.txt,text/csv"></div>
         <div class="field" style="margin-top:10px"><label for="csv-text">…or paste here</label><textarea id="csv-text" rows="8" spellcheck="false"></textarea></div>
@@ -220,7 +223,7 @@ export default async function bulkView({ el }) {
       ? html`<div class="error-box">${problems.join('. ')}.</div>`
       : html`<p class="muted">${plural(items.length, 'row')} found. Preview of the first ${Math.min(8, items.length)}:</p>
         <div class="table-wrap"><table class="data"><thead><tr><th>Barcode</th><th>Category</th><th>Type</th><th>Description</th><th>Male end</th><th>Female end</th><th>Length</th></tr></thead>
-        <tbody>${items.slice(0, 8).map((i) => html`<tr><td class="barcode">${i.barcode}</td><td>${i.category}</td><td>${i.type}</td><td>${i.name || ''}</td><td>${i.male_connector || ''}</td><td>${i.female_connector || ''}</td><td>${i.length_m || ''}</td></tr>`)}</tbody></table></div>`);
+        <tbody>${items.slice(0, 8).map((i) => html`<tr><td class="barcode">${i.barcode}</td><td>${i.category}</td><td>${i.type}</td><td>${i.name || ''}</td><td>${i.male_connector || (i.input_connector ? `In: ${i.input_connector}` : '')}</td><td>${i.female_connector || (i.outputs ? `Out: ${i.outputs}` : '')}</td><td>${i.length_m || ''}</td></tr>`)}</tbody></table></div>`);
   };
   csvText.addEventListener('input', renderCsv);
   $('#csv-file', el).addEventListener('change', async (e) => {

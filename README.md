@@ -38,7 +38,7 @@ A USB / Bluetooth barcode scanner works like a keyboard: it types the code and p
 
 Each outcome has its own sound (open **Sound** in the bar to hear them all): out, return, store, found, PAT pass, PAT fail, lookup, duplicate/warn, blocked, unknown barcode, and "out but PAT needs attention".
 
-Rules: an item must be scanned OUT onto a rental or picked from the rental's **Add items** list (an unknown barcode can be added straight from the scan bar). Items that are lost, disassembled, in repair, PAT-failed, or already out on another rental are blocked from going out.
+Rules: an item must be scanned OUT onto a rental or picked from the rental's **Add items** list (an unknown barcode can be added straight from the scan bar). Items that are lost, disassembled, in repair, **sold**, PAT-failed, or already out on another rental are blocked from going out.
 
 ## Barcodes
 
@@ -46,7 +46,8 @@ Barcodes are zero-padded numbers like `00001`, shared by items and containers (a
 
 ## Features
 
-- **Items:** category → type (Power: cable/adapter/splitter; Lighting: cable/light/unit; Sound: cable/audio), male & female connector for cables/adapters/splitters, length, description
+- **Items:** category → type (Power: cable/adapter/splitter/distro; Lighting: cable/light/unit; Sound: cable/audio), male & female connector for cables/adapters/splitters, length, description
+- **Distros:** a Power type with one input connector and a list of outputs (e.g. 6 × 16A Cee, 2 × 13A). Shown as IN → OUT chips, printed as `In: … / Out: …` on the hire PDFs (identical distros combine on the client copy), and importable from CSV via `input_connector` and `outputs` (`6x 16A Cee (blue); 2x 13A (BS1363)`)
 - **Inventory:** search across every field, sort by any column, filters, CSV export
 - **Bulk add:** scan or paste barcodes, generate a numbered range (e.g. 00101–00150), or import a CSV
 - **Rentals:** create, scan items in and out (or click **Add items** on a rental to search/filter the in-stock list, tick the ones you want and add them in one go), complete/reopen, and export two PDFs from the rental page:
@@ -54,6 +55,7 @@ Barcodes are zero-padded numbers like `00001`, shared by items and containers (a
   - **Client PDF**: no barcodes, PAT dates or notes. Identical items are combined into one line with a quantity (4 × 10m 16A lead shows as "4"). Items only combine if type, description, both ends and length all match
 - **Containers:** own barcode, scan items in, scan the container to send its contents out
 - **Markers & comments:** mark items Lost / Disassembled / Repair with a note, leave comments, full activity history
+- **Sold:** *Mark as sold* on an item page (add a note for who / how much). The item stays on the inventory register (filter by status *Sold*) but is inert: it can't be scanned in or out in any mode, added to a rental, stored in a container or PAT tested, and it drops out of the PAT counts. *Undo sale* on its page restores it; scanning never does.
 - **PAT testing:** per-item interval (default 12 months), overdue / due-soon / failed / never-tested views, record by scan or by button
 - **Dashboard:** stock by type and state, PAT status, active rentals, items needing attention, recent activity
 

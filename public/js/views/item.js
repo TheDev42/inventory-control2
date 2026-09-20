@@ -1,5 +1,5 @@
 import {
-  api, html, mount, $, cap, fmtDate, fmtDateTime, timeAgo, toast, notifyChanged, itemTitle, ends, statusBadge, patBadge, statusLabel,
+  api, html, mount, $, cap, fmtDate, fmtDateTime, timeAgo, toast, notifyChanged, itemTitle, ends, outputsOf, statusBadge, patBadge, statusLabel,
 } from '../util.js';
 import { app } from '../state.js';
 import { state as scanState } from '../scanner.js';
@@ -15,6 +15,8 @@ export default async function itemView({ el, args, isActive }) {
     const it = d.item;
     const missing = ['lost', 'disassembled', 'repair'].includes(it.status);
     const onRental = it.status === 'on_rental';
+    const sold = it.status === 'sold';
+    const canSell = ['in_stock', 'repair', 'disassembled'].includes(it.status);
 
     mount(el, html`
       <div class="crumbs"><a href="#/inventory">Inventory</a> / ${it.barcode}</div>
@@ -22,7 +24,7 @@ export default async function itemView({ el, args, isActive }) {
         <div>
           <div class="code">${it.barcode}</div>
           <div style="font-size:1.1rem;font-weight:650;margin-top:2px">${itemTitle(it)}${it.name ? html` <span class="muted">— ${it.name}</span>` : ''}</div>
-          <div style="margin-top:8px" class="actions">${statusBadge(it.status)} ${patBadge(it.pat_status)} ${ends(it)}</div>
+          <div style="margin-top:8px" class="actions">${statusBadge(it.status)} ${sold ? '' : patBadge(it.pat_status)} ${ends(it)}</div>
           <div class="muted" style="margin-top:8px">
             ${it.rental_id ? html`${it.status === 'lost' ? 'Lost on' : 'Out on'} rental <a href="#/rentals/${it.rental_id}">${it.rental_name}</a>. ` : ''}
             ${it.container_id ? html`Stored in <a href="#/containers/${it.container_id}">${it.container_name}</a> (${it.container_barcode}). ` : ''}
@@ -33,12 +35,15 @@ export default async function itemView({ el, args, isActive }) {
           <a class="btn secondary" href="#/items/${it.id}/edit">Edit</a>
           ${onRental ? html`<button class="btn" data-act="return">Return to stock</button>` : ''}
           ${it.container_id ? html`<button class="btn secondary" data-act="unstore">Remove from container</button>` : ''}
+          ${sold ? html`<button class="btn" data-marker="in_stock">Undo sale</button>` : ''}
           ${missing ? html`<button class="btn" data-marker="in_stock">Restore to stock</button>` : ''}
-          ${it.status !== 'lost' ? html`<button class="btn secondary" data-marker="lost">Mark lost</button>` : ''}
-          ${!['disassembled', 'on_rental'].includes(it.status) ? html`<button class="btn secondary" data-marker="disassembled">Mark disassembled</button>` : ''}
-          ${!['repair', 'on_rental'].includes(it.status) ? html`<button class="btn secondary" data-marker="repair">Mark repair</button>` : ''}
+          ${!sold && it.status !== 'lost' ? html`<button class="btn secondary" data-marker="lost">Mark lost</button>` : ''}
+          ${!sold && !['disassembled', 'on_rental'].includes(it.status) ? html`<button class="btn secondary" data-marker="disassembled">Mark disassembled</button>` : ''}
+          ${!sold && !['repair', 'on_rental'].includes(it.status) ? html`<button class="btn secondary" data-marker="repair">Mark repair</button>` : ''}
+          ${canSell ? html`<button class="btn secondary" data-marker="sold" title="Keeps it on the register, but it can no longer be scanned in or out">Mark as sold</button>` : ''}
         </div>
       </div>
+      ${sold ? html`<div class="notice warn" style="margin-top:16px"><strong>Sold.</strong> This item stays on the inventory register for your records, but it cannot be scanned in or out, added to a rental, stored in a container or PAT tested. Use <strong>Undo sale</strong> if that was a mistake.</div>` : ''}
 
       <div class="grid side" style="margin-top:16px">
         <div class="stack">
@@ -83,12 +88,15 @@ export default async function itemView({ el, args, isActive }) {
               ${app.meta.connectorTypes.includes(it.type) ? html`
                 <dt>Male end</dt><dd>${it.male_connector || '—'}</dd>
                 <dt>Female end</dt><dd>${it.female_connector || '—'}</dd>` : ''}
+              ${app.meta.outputTypes.includes(it.type) ? html`
+                <dt>Input (in)</dt><dd>${it.input_connector || '—'}</dd>
+                <dt>Outputs (out)</dt><dd>${outputsOf(it).length ? html`<ul class="plain">${outputsOf(it).map((o) => html`<li><strong>${o.qty}×</strong> ${o.connector}</li>`)}</ul>` : '—'}</dd>` : ''}
               <dt>Length</dt><dd>${it.length_m != null ? `${it.length_m} m` : '—'}</dd>
               <dt>Added</dt><dd>${fmtDate(it.created_at)}</dd>
             </dl>
           </section>
 
-          <section class="card">
+          ${sold ? html`<section class="card"><h2>PAT testing</h2><p class="muted" style="margin:0">Sold items are not PAT tested.${it.last_pat_date ? html` Last test before sale: ${fmtDate(it.last_pat_date)} (${it.last_pat_result === 'pass' ? 'pass' : 'FAIL'}).` : ''}</p></section>` : html`<section class="card">
             <h2>PAT testing</h2>
             <dl class="dl" style="margin-bottom:12px">
               <dt>Status</dt><dd>${patBadge(it.pat_status)}</dd>
@@ -108,7 +116,7 @@ export default async function itemView({ el, args, isActive }) {
             ${d.pat_tests.length ? html`<h3 style="margin:16px 0 6px">History</h3><ul class="feed">${d.pat_tests.map((t) => html`
               <li><span class="what"><strong>${t.result === 'pass' ? '✓ Pass' : '✕ Fail'}</strong> · ${fmtDate(t.tested_at)}${t.tester ? html` · ${t.tester}` : ''}${t.notes ? html`<div class="muted small-text">${t.notes}</div>` : ''}</span>
               <span class="when">${t.next_due ? 'due ' + fmtDate(t.next_due) : ''}</span></li>`)}</ul>` : ''}
-          </section>
+          </section>`}
 
           <section class="card"><h2>Danger zone</h2>
             <button class="btn danger" data-act="delete" ${it.rental_id ? 'disabled title="Return it from its rental first"' : ''}>Delete this item</button>
@@ -125,9 +133,14 @@ export default async function itemView({ el, args, isActive }) {
     const marker = e.target.closest('[data-marker]');
     if (marker) {
       const status = marker.dataset.marker;
-      const note = prompt(status === 'in_stock' ? 'Restore to stock — add a note (optional):' : `Mark as ${statusLabel(status).toUpperCase()} — add a note (optional):`, '');
+      const undoSale = status === 'in_stock' && marker.textContent.trim() === 'Undo sale';
+      const question = undoSale ? 'Undo the sale and put it back in stock — add a note (optional):'
+        : status === 'in_stock' ? 'Restore to stock — add a note (optional):'
+        : status === 'sold' ? 'Mark as SOLD — it stays on the register but can no longer be scanned in or out. Add a note (who to, price, date…) (optional):'
+        : `Mark as ${statusLabel(status).toUpperCase()} — add a note (optional):`;
+      const note = prompt(question, '');
       if (note === null) return;
-      run(() => api.post(`/api/items/${id}/marker`, { status, note }), status === 'in_stock' ? 'Restored to stock' : `Marked ${statusLabel(status).toLowerCase()}`);
+      run(() => api.post(`/api/items/${id}/marker`, { status, note }), undoSale ? 'Sale undone — back in stock' : status === 'in_stock' ? 'Restored to stock' : `Marked ${statusLabel(status).toLowerCase()}`);
       return;
     }
     const act = e.target.closest('[data-act]')?.dataset.act;

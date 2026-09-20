@@ -88,6 +88,7 @@ const STATUS_META = {
   lost: { label: 'Lost', icon: '?', cls: 'st-lost' },
   disassembled: { label: 'Disassembled', icon: '✂', cls: 'st-dis' },
   repair: { label: 'Repair', icon: '⚒', cls: 'st-repair' },
+  sold: { label: 'Sold', icon: '£', cls: 'st-sold' },
 };
 export const statusLabel = (s) => STATUS_META[s]?.label || s;
 export const statusBadge = (s) => {
@@ -110,8 +111,15 @@ export const patBadge = (s) => {
 };
 
 export const itemTitle = (it) => `${cap(it.category)} ${it.type}`;
+// Distro outputs arrive as a JSON string: [{ connector, qty }]
+export const outputsOf = (it) => {
+  try { const v = JSON.parse(it.outputs); return Array.isArray(v) ? v : []; } catch { return []; }
+};
 export const ends = (it) =>
-  it.male_connector || it.female_connector
+  it.input_connector || it.outputs
+    ? html`<span class="ends">${it.input_connector ? html`<span class="end in" title="Input connector">${it.input_connector}</span>` : ''}${outputsOf(it).length
+      ? html`<span class="arrow" aria-hidden="true">→</span><span class="outs" title="Output connectors">${outputsOf(it).map((o) => html`<span class="end">${o.qty}× ${o.connector}</span>`)}</span>` : ''}</span>`
+    : it.male_connector || it.female_connector
     ? html`<span class="ends"><span class="end m" title="Male end">${it.male_connector || '?'}</span><span class="arrow" aria-hidden="true">→</span><span class="end f" title="Female end">${it.female_connector || '?'}</span></span>`
     : '';
 
