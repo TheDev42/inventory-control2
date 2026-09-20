@@ -1,0 +1,21 @@
+services:
+  inventory:
+    build: .
+    container_name: inventory-tracker
+    ports:
+      - "3000:3000"
+    volumes:
+      - inventory-data:/data
+    environment:
+      TZ: Europe/London
+      # Shown at the top of exported PDFs and in the sidebar. The logo is server/assets/FaderUp-Logo-white.png
+      COMPANY_NAME: "FaderUp"
+      # Barcode width: numeric codes shorter than this are zero-padded (12 -> 00012). 0 = off
+      BARCODE_DIGITS: "5"
+      # Optional: uncomment to require a login (browser basic-auth prompt)
+      # AUTH_USER: admin
+      # AUTH_PASS: change-me
+    restart: unless-stopped
+
+volumes:
+  inventory-data:

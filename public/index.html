@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M7 9v14M11 9v14M15 9v14M19 9v14M23 9v14M9 9v14' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span id="brand-name">Stock Tracker</span></div>
+      <nav id="nav"></nav>
+      <div class="sidebar-foot">
+        <button class="btn ghost small" id="theme-btn" type="button" title="Toggle light / dark">Theme</button>
+        <a class="btn ghost small" href="/api/backup" title="Download a copy of the database">Backup</a>
+      </div>
+    </aside>
+
+    <div class="main">
+      <section class="scanbar mode-lookup" id="scanbar" aria-label="Scanner">
+        <div class="sb-row">
+          <div class="sb-modes" id="sb-modes" role="group" aria-label="Scan mode"></div>
+          <div class="sb-ctx" id="sb-ctx"></div>
+          <form class="sb-form" id="sb-form" autocomplete="off">
+            <input id="sb-input" type="text" inputmode="numeric" placeholder="Scan anywhere on the page, or type a barcode + Enter" aria-label="Barcode">
+            <button class="btn small" type="submit">Go</button>
+          </form>
+          <div class="sb-tools">
+            <button class="btn ghost small" id="sb-log-btn" type="button" title="Recent scans">Log</button>
+            <button class="btn ghost small" id="sb-sound-btn" type="button" title="Sounds">Sound</button>
+          </div>
+        </div>
+        <div class="sb-result" id="sb-result" role="status" aria-live="polite"></div>
+        <div class="sb-panel" id="sb-panel" hidden></div>
+      </section>
+
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

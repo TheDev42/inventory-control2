@@ -1,0 +1,171 @@
+import express from 'express';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { all, db, DATA_DIR, HttpError, today } from './db.js';
+import { CATALOG, CONNECTOR_SUGGESTIONS, CONNECTOR_TYPES, STATUSES, STATUS_LABEL, PAT_STATUSES, BARCODE_DIGITS } from './catalog.js';
+import * as items from './items.js';
+import * as rentals from './rentals.js';
+import * as containers from './containers.js';
+import { handleScan } from './scan.js';
+import { dashboard } from './dashboard.js';
+import { writeRentalPdf, safeFilename } from './pdf.js';
+
+const app = express();
+const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const COMPANY = process.env.COMPANY_NAME || 'FaderUp';
+const id = (req) => {
+  const n = parseInt(req.params.id, 10);
+  if (!Number.isInteger(n)) throw new HttpError(400, 'Invalid id');
+  return n;
+};
+
+app.disable('x-powered-by');
+app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+/* Optional basic-auth: set AUTH_USER and AUTH_PASS */
+if (process.env.AUTH_USER && process.env.AUTH_PASS) {
+  const digest = (s) => crypto.createHash('sha256').update(String(s)).digest();
+  const same = (a, b) => crypto.timingSafeEqual(digest(a), digest(b));
+  app.use((req, res, next) => {
+    const [scheme, b64] = (req.headers.authorization || '').split(' ');
+    if (scheme === 'Basic' && b64) {
+      const decoded = Buffer.from(b64, 'base64').toString();
+      const i = decoded.indexOf(':');
+      if (i >= 0 && same(decoded.slice(0, i), process.env.AUTH_USER) && same(decoded.slice(i + 1), process.env.AUTH_PASS)) return next();
+    }
+    res.set('WWW-Authenticate', 'Basic realm="Inventory"').status(401).send('Authentication required');
+  });
+}
+
+app.use(express.json({ limit: '5mb' }));
+
+/* ---------- meta ---------- */
+app.get('/api/meta', (_req, res) => {
+  const seen = new Set(CONNECTOR_SUGGESTIONS.map((c) => c.toLowerCase()));
+  const connectors = [...CONNECTOR_SUGGESTIONS];
+  for (const r of all(`SELECT male_connector AS c FROM items WHERE male_connector IS NOT NULL
+                       UNION SELECT female_connector FROM items WHERE female_connector IS NOT NULL ORDER BY 1`)) {
+    if (!seen.has(r.c.toLowerCase())) { seen.add(r.c.toLowerCase()); connectors.push(r.c); }
+  }
+  res.json({
+    catalog: CATALOG,
+    connectorTypes: [...CONNECTOR_TYPES],
+    statuses: STATUSES,
+    statusLabels: STATUS_LABEL,
+    patStatuses: PAT_STATUSES,
+    connectors,
+    barcodeDigits: BARCODE_DIGITS,
+    company: COMPANY,
+    today: today(),
+  });
+});
+
+app.get('/api/dashboard', (_req, res) => res.json(dashboard()));
+
+/* ---------- scanning ---------- */
+app.post('/api/scan', (req, res) => res.json(handleScan(req.body)));
+
+/* ---------- items ---------- */
+app.get('/api/items', (req, res) => res.json(items.listItems(req.query)));
+
+app.get('/api/items/export.csv', (req, res) => {
+  const { items: rows } = items.listItems({ ...req.query, limit: 1000, offset: 0 });
+  const total = items.listItems({ ...req.query, limit: 1 }).total;
+  let list = rows;
+  for (let off = 1000; off < total; off += 1000) list = list.concat(items.listItems({ ...req.query, limit: 1000, offset: off }).items);
+  const cols = ['barcode', 'category', 'type', 'name', 'male_connector', 'female_connector', 'length_m', 'status',
+    'rental_name', 'container_name', 'pat_required', 'pat_status', 'last_pat_date', 'next_pat_due'];
+  // Guard against spreadsheet formula injection in text cells
+  const cell = (v) => {
+    let s = v == null ? '' : String(v);
+    if (/^[=+\-@\t\r]/.test(s) && Number.isNaN(Number(s))) s = "'" + s;
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [cols.join(','), ...list.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\r\n');
+  res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="inventory-${today()}.csv"` });
+  res.send('﻿' + csv);
+});
+
+app.post('/api/items/bulk', (req, res) => res.json(items.bulkCreate(req.body?.items)));
+app.post('/api/items', (req, res) => res.status(201).json(items.createItem(req.body || {})));
+// null (not a 404) when the barcode is unknown, so the UI can check without a console error
+app.get('/api/items/lookup/:barcode', (req, res) => res.json(items.getItemByBarcode(req.params.barcode) || null));
+app.get('/api/items/:id', (req, res) => res.json(items.itemDetail(id(req))));
+app.put('/api/items/:id', (req, res) => res.json(items.updateItem(id(req), req.body || {})));
+app.delete('/api/items/:id', (req, res) => { items.deleteItem(id(req)); res.json({ ok: true }); });
+app.post('/api/items/:id/marker', (req, res) => res.json(items.setMarker(id(req), req.body?.status, req.body?.note)));
+app.post('/api/items/:id/comments', (req, res) => res.status(201).json(items.addComment(id(req), req.body?.text)));
+app.post('/api/items/:id/pat', (req, res) => res.status(201).json(items.recordPat(id(req), req.body || {})));
+app.post('/api/items/:id/unstore', (req, res) => res.json(containers.unstoreItem(id(req))));
+app.post('/api/items/:id/return', (req, res) => {
+  const item = items.getItem(id(req));
+  if (!item) throw new HttpError(404, 'Item not found');
+  res.json(items.returnItem(item));
+});
+app.delete('/api/comments/:id', (req, res) => { items.deleteComment(id(req)); res.json({ ok: true }); });
+
+/* ---------- rentals ---------- */
+app.get('/api/rentals', (req, res) => res.json(rentals.listRentals(req.query)));
+app.post('/api/rentals', (req, res) => res.status(201).json(rentals.createRental(req.body || {})));
+app.get('/api/rentals/:id', (req, res) => res.json(rentals.rentalDetail(id(req))));
+app.put('/api/rentals/:id', (req, res) => res.json(rentals.updateRental(id(req), req.body || {})));
+app.delete('/api/rentals/:id', (req, res) => { rentals.deleteRental(id(req)); res.json({ ok: true }); });
+app.post('/api/rentals/:id/complete', (req, res) => res.json(rentals.completeRental(id(req), !!req.body?.returnAll)));
+app.post('/api/rentals/:id/reopen', (req, res) => res.json(rentals.reopenRental(id(req))));
+app.delete('/api/rentals/:id/items/:itemId', (req, res) => {
+  res.json(rentals.removeFromRental(id(req), parseInt(req.params.itemId, 10)));
+});
+// Two PDFs per rental: the internal hire sheet (barcodes, PAT, return boxes) and the client copy (quantities only).
+const sendRentalPdf = (mode, prefix) => (req, res) => {
+  const { rental, items: rows } = rentals.rentalDetail(id(req));
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="${prefix}-${safeFilename(rental.name)}.pdf"`,
+  });
+  writeRentalPdf(res, { rental, items: rows, company: COMPANY, mode });
+};
+app.get('/api/rentals/:id/pdf', sendRentalPdf('internal', 'hire-sheet'));
+app.get('/api/rentals/:id/client-pdf', sendRentalPdf('client', 'client-hire-list'));
+
+/* ---------- containers ---------- */
+app.get('/api/containers', (req, res) => res.json(containers.listContainers(req.query.q)));
+app.post('/api/containers', (req, res) => res.status(201).json(containers.createContainer(req.body || {})));
+app.get('/api/containers/:id', (req, res) => res.json(containers.containerDetail(id(req))));
+app.put('/api/containers/:id', (req, res) => res.json(containers.updateContainer(id(req), req.body || {})));
+app.delete('/api/containers/:id', (req, res) => { containers.deleteContainer(id(req)); res.json({ ok: true }); });
+app.post('/api/containers/:id/empty', (req, res) => res.json({ removed: containers.emptyContainer(id(req)) }));
+
+/* ---------- activity + backup ---------- */
+app.get('/api/events', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
+  res.json(all('SELECT * FROM events ORDER BY id DESC LIMIT ?', limit));
+});
+
+app.get('/api/backup', (_req, res, next) => {
+  const file = path.join(DATA_DIR, `backup-${Date.now()}.db`);
+  try {
+    db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+  } catch (err) { return next(err); }
+  res.download(file, `inventory-backup-${today()}.db`, () => fs.rm(file, { force: true }, () => {}));
+});
+
+/* ---------- static frontend ---------- */
+app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
+app.use(express.static(publicDir, { etag: true, maxAge: 0 }));
+app.get('*', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+
+/* ---------- errors ---------- */
+// eslint-disable-next-line no-unused-vars
+app.use((err, _req, res, _next) => {
+  if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+  if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
+  if (err?.status >= 400 && err.status < 500) return res.status(err.status).json({ error: err.message });
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+const port = parseInt(process.env.PORT, 10) || 3000;
+app.listen(port, '0.0.0.0', () => console.log(`Inventory tracker listening on :${port} (data in ${DATA_DIR})`));

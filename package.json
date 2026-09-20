@@ -1,0 +1,17 @@
+{
+  "name": "inventory-tracker",
+  "version": "1.0.0",
+  "description": "Barcode inventory, rental and PAT tracking for an events & power hire company",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pdfkit": "^0.17.0"
+  }
+}
