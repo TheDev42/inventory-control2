@@ -87,7 +87,7 @@ export default async function rentalView({ el, args, isActive }) {
           <a class="btn secondary" href="/api/rentals/${id}/pdf" download title="INTERNAL copy for staff: barcodes, PAT dates and return tick-boxes. Not for the client.">Internal PDF (staff)</a>
           <a class="btn secondary" href="/api/rentals/${id}/client-pdf" download title="CLIENT copy to give the customer: no barcodes or PAT dates, identical items combined into quantities">Client PDF (customer)</a>
           <button class="btn secondary" data-act="edit">Edit details</button>
-          ${active ? html`<button class="btn secondary" data-act="complete">Complete rental</button>` : html`<button class="btn secondary" data-act="reopen">Reopen</button>`}
+          ${active ? html`<button class="btn secondary" data-act="complete" title="Closes the rental. Anything not returned is marked LOST.">Complete rental</button>` : html`<button class="btn secondary" data-act="reopen">Reopen</button>`}
           <button class="btn danger" data-act="delete">Delete</button>
         </div>
       </div>
