@@ -78,6 +78,18 @@ CREATE TABLE IF NOT EXISTS rental_items (
 CREATE INDEX IF NOT EXISTS idx_ri_rental ON rental_items(rental_id);
 CREATE INDEX IF NOT EXISTS idx_ri_item ON rental_items(item_id);
 
+-- Which cases are on a rental (packed for shipment, or scanned out). returned_at is set when the case itself is scanned back.
+CREATE TABLE IF NOT EXISTS rental_cases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rental_id INTEGER NOT NULL REFERENCES rentals(id) ON DELETE CASCADE,
+  container_id INTEGER NOT NULL REFERENCES containers(id) ON DELETE CASCADE,
+  added_at TEXT NOT NULL,
+  returned_at TEXT,
+  UNIQUE (rental_id, container_id)
+);
+CREATE INDEX IF NOT EXISTS idx_rc_rental ON rental_cases(rental_id);
+CREATE INDEX IF NOT EXISTS idx_rc_container ON rental_cases(container_id);
+
 CREATE TABLE IF NOT EXISTS comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
@@ -113,11 +125,15 @@ CREATE INDEX IF NOT EXISTS idx_events_item ON events(item_id);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 `);
 
-// Databases created before distros existed are upgraded in place (columns are only ever added).
-const itemCols = new Set(db.prepare('PRAGMA table_info(items)').all().map((c) => c.name));
-for (const [col, type] of [['input_connector', 'TEXT'], ['outputs', 'TEXT']]) {
-  if (!itemCols.has(col)) db.exec(`ALTER TABLE items ADD COLUMN ${col} ${type}`);
+// Databases created by older versions are upgraded in place (columns are only ever added).
+function ensureColumn(table, col, ddl) {
+  const have = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+  if (!have.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
 }
+ensureColumn('items', 'input_connector', 'TEXT');
+ensureColumn('items', 'outputs', 'TEXT');
+ensureColumn('containers', 'kind', "TEXT NOT NULL DEFAULT 'permanent'"); // permanent (always used) | temporary (one-off box)
+ensureColumn('rental_items', 'case_id', 'INTEGER REFERENCES containers(id) ON DELETE SET NULL'); // the case this line is packed in for the shipment
 
 const norm = (params) =>
   params.map((v) => (v === undefined ? null : typeof v === 'boolean' ? (v ? 1 : 0) : v));

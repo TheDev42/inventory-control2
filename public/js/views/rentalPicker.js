@@ -1,5 +1,6 @@
 import { api, html, mount, $, $$, qs, debounce, cap, itemTitle, ends, patBadge, plural, toast, notifyChanged } from '../util.js';
 import { app } from '../state.js';
+import { caseOptions, newTempBox } from '../ui.js';
 
 /*
  * Manual item picker for a rental: search / filter the in-stock items, tick the ones you want, add them in one go.
@@ -17,6 +18,8 @@ export function createPicker({ rentalId, onClose }) {
   let rows = [];
   let total = 0;
   let seq = 0;
+  let caseId = null; // "pack into" choice: added items go straight into this case
+  let containers = [];
 
   const types = () => (s.category ? app.meta.catalog[s.category] || [] : [...new Set(Object.values(app.meta.catalog).flat())]);
   const selectable = (it) => it.pat_status !== 'failed';
@@ -34,6 +37,10 @@ export function createPicker({ rentalId, onClose }) {
     if (!bar) return;
     mount(bar, html`
       <span class="pk-count"><strong>${n}</strong> selected</span>
+      <label class="pk-case">Pack into
+        <select id="pk-case" aria-label="Pack the added items into this case">
+          <option value="">no case</option>${caseOptions(containers, caseId)}<option value="__new">+ New temporary box…</option>
+        </select></label>
       <span class="actions">
         ${n ? html`<button class="btn ghost small" type="button" data-pk="clear">Clear selection</button>` : ''}
         <button class="btn" type="button" data-pk="add" ${n ? '' : 'disabled'}>${n ? `Add ${plural(n, 'item')} to rental` : 'Add to rental'}</button>
@@ -115,14 +122,15 @@ export function createPicker({ rentalId, onClose }) {
     const btn = $('[data-pk=add]', host);
     if (btn) btn.disabled = true;
     try {
-      const r = await api.post(`/api/rentals/${rentalId}/items`, { itemIds });
+      const r = await api.post(`/api/rentals/${rentalId}/items`, { itemIds, caseId });
       selected.clear();
       const pat = r.warned ? ` ⚠ ${r.warned} with PAT due/overdue` : '';
       if (r.skipped.length) {
         const why = r.skipped.slice(0, 3).map((x) => `${x.barcode} ${x.reason}`).join('; ') + (r.skipped.length > 3 ? '…' : '');
         toast(`${r.added ? `Added ${plural(r.added, 'item')}${pat}. ` : ''}${r.skipped.length} skipped: ${why}`, r.added ? 'info' : 'error', 8000);
       } else {
-        toast(`Added ${plural(r.added, 'item')} to the rental${pat}`, 'ok');
+        const boxName = r.packed ? containers.find((c) => c.id === caseId)?.name : null;
+        toast(`Added ${plural(r.added, 'item')} to the rental${boxName ? `, packed into ${boxName}` : ''}${pat}`, 'ok');
       }
       notifyChanged(); // re-renders the rental page (and this picker) with the new lines
     } catch (err) {
@@ -141,8 +149,18 @@ export function createPicker({ rentalId, onClose }) {
   function wire() {
     const search = debounce((value) => { s.q = value.trim(); s.page = 0; load(); }, 220);
     host.addEventListener('input', (e) => { if (e.target.id === 'pk-q') search(e.target.value); });
-    host.addEventListener('change', (e) => {
+    host.addEventListener('change', async (e) => {
       const t = e.target;
+      if (t.id === 'pk-case') {
+        if (t.value === '__new') {
+          try {
+            const box = await newTempBox();
+            if (box) { containers = [...containers, box]; caseId = box.id; }
+          } catch (err) { toast(err.message, 'error', 5000); }
+        } else caseId = t.value ? Number(t.value) : null;
+        renderBar();
+        return;
+      }
       if (t.id === 'pk-category') { s.category = t.value; fillTypes(); s.page = 0; load(); }
       else if (t.id === 'pk-type') { s.type = t.value; s.page = 0; load(); }
       else if (t.id === 'pk-all') {
@@ -192,6 +210,7 @@ export function createPicker({ rentalId, onClose }) {
         </section>`);
       fillTypes();
       wire();
+      api.get('/api/containers').then((list) => { containers = list; renderBar(); }).catch(() => { /* the case list is optional */ });
       if (rows.length) renderList(); // show the last results straight away while the fresh ones load
       else renderBar();
       load();

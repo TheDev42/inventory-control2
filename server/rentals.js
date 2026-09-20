@@ -46,10 +46,22 @@ export function listRentals({ status, q } = {}) {
 
 export function rentalItems(rentalId) {
   return all(
-    `${itemSelect('ri.id AS row_id, ri.added_at, ri.returned_at, ri.outcome')}
+    `${itemSelect('ri.id AS row_id, ri.added_at, ri.returned_at, ri.outcome, ri.case_id, cc.name AS case_name, cc.barcode AS case_barcode, cc.kind AS case_kind')}
      JOIN rental_items ri ON ri.item_id = i.id
+     LEFT JOIN containers cc ON cc.id = ri.case_id
      WHERE ri.rental_id = ?
      ORDER BY i.category, i.type, i.barcode COLLATE NOCASE, ri.added_at`,
+    rentalId
+  );
+}
+
+// The cases on this rental, in the order they were added (that order gives the "1 of 3" box numbers on labels)
+export function rentalCases(rentalId) {
+  return all(
+    `SELECT rc.id, rc.container_id, rc.added_at, rc.returned_at, c.name, c.barcode, c.kind,
+       (SELECT COUNT(*) FROM rental_items ri WHERE ri.rental_id = rc.rental_id AND ri.case_id = rc.container_id AND ri.outcome IS NULL) AS packed_count
+     FROM rental_cases rc JOIN containers c ON c.id = rc.container_id
+     WHERE rc.rental_id = ? ORDER BY rc.id`,
     rentalId
   );
 }
@@ -57,7 +69,7 @@ export function rentalItems(rentalId) {
 export function rentalDetail(id) {
   const rental = getRental(id);
   if (!rental) throw new HttpError(404, 'Rental not found');
-  return { rental, items: rentalItems(id) };
+  return { rental, items: rentalItems(id), cases: rentalCases(id) };
 }
 
 export function createRental(data) {
@@ -80,23 +92,31 @@ export function updateRental(id, data) {
   return getRental(id);
 }
 
-export function completeRental(id, returnAll) {
+// Completing a rental closes it off: every item that has not been returned is marked LOST (it stays flagged LOST in
+// inventory, with a note, until it is found and restored). `markLost` must be passed when items are still out, as the confirmation.
+export function completeRental(id, markLost) {
   const rental = getRental(id);
   if (!rental) throw new HttpError(404, 'Rental not found');
   if (rental.status !== 'active') throw new HttpError(409, 'Rental is already completed');
   const stillOut = all(`${itemSelect()} WHERE i.rental_id = ? AND i.status = 'on_rental'`, id);
-  if (stillOut.length && !returnAll) {
-    throw new HttpError(409, `${stillOut.length} item(s) are still out on this rental`);
+  if (stillOut.length && !markLost) {
+    throw new HttpError(409, `${stillOut.length} item(s) have not been returned — completing this rental would mark them LOST`);
   }
   tx(() => {
-    for (const item of stillOut) returnItem(item);
+    for (const item of stillOut) {
+      run(`UPDATE items SET status = 'lost', container_id = NULL, updated_at = ? WHERE id = ?`, nowIso(), item.id);
+      run(`INSERT INTO comments (item_id, kind, text, created_at) VALUES (?, 'marker', ?, ?)`,
+        item.id, `Marked LOST: not returned when "${rental.name}" was completed`, nowIso());
+      logEvent({ action: 'lost', item, rental, detail: `Not returned when "${rental.name}" was completed: marked lost` });
+    }
     // Anything lost on this job is closed off as lost; the item itself stays flagged LOST in inventory.
     run(`UPDATE rental_items SET outcome = 'lost' WHERE rental_id = ? AND outcome IS NULL`, id);
     run(`UPDATE items SET rental_id = NULL WHERE rental_id = ? AND status = 'lost'`, id);
+    run(`UPDATE rental_cases SET returned_at = ? WHERE rental_id = ? AND returned_at IS NULL`, nowIso(), id);
     run(`UPDATE rentals SET status = 'completed', completed_at = ? WHERE id = ?`, nowIso(), id);
-    logEvent({ action: 'rental_completed', rental, detail: `Rental "${rental.name}" completed` });
+    logEvent({ action: 'rental_completed', rental, detail: `Rental "${rental.name}" completed${stillOut.length ? `, ${stillOut.length} item(s) not returned were marked lost` : ''}` });
   });
-  return getRental(id);
+  return { ...getRental(id), marked_lost: stillOut.length };
 }
 
 export function reopenRental(id) {
@@ -114,6 +134,7 @@ export function deleteRental(id) {
   if (open) throw new HttpError(409, `${open} item(s) are still out on this rental — return them first`);
   tx(() => {
     run('DELETE FROM rental_items WHERE rental_id = ?', id);
+    run('DELETE FROM rental_cases WHERE rental_id = ?', id);
     run('DELETE FROM rentals WHERE id = ?', id);
     logEvent({ action: 'rental_deleted', detail: `Rental "${rental.name}" deleted` });
   });
@@ -148,14 +169,96 @@ export function checkout(item, rental, viaContainer) {
   return { state: 'added', warning: PAT_WARN[item.pat_status] };
 }
 
-// Manual picker: add several chosen items at once. Items that cannot go out are skipped with a reason.
-export function addItemsToRental(rentalId, itemIds) {
+/* ---------- cases: which cases are on a rental, and which case each line is packed in ---------- */
+
+const getContainerRow = (id) => get('SELECT * FROM containers WHERE id = ?', id);
+
+// Puts a case on the rental (or back on it, if it had been marked returned)
+export function attachCase(rentalId, containerId) {
+  const row = get('SELECT * FROM rental_cases WHERE rental_id = ? AND container_id = ?', rentalId, containerId);
+  if (!row) run('INSERT INTO rental_cases (rental_id, container_id, added_at) VALUES (?, ?, ?)', rentalId, containerId, nowIso());
+  else if (row.returned_at) run('UPDATE rental_cases SET returned_at = NULL WHERE id = ?', row.id);
+}
+
+// Packs lines into a case (caseId null = take them out of any case). Only lines still out on this rental can be packed.
+export function packItems(rentalId, itemIds, caseId) {
+  let assigned = 0;
+  const skipped = [];
+  tx(() => {
+    for (const raw of new Set(itemIds.map(Number))) {
+      const row = Number.isInteger(raw)
+        ? get('SELECT id FROM rental_items WHERE rental_id = ? AND item_id = ? AND outcome IS NULL', rentalId, raw) : null;
+      if (!row) { skipped.push({ id: raw, reason: 'not out on this rental' }); continue; }
+      run('UPDATE rental_items SET case_id = ? WHERE id = ?', caseId, row.id);
+      assigned++;
+    }
+    if (caseId && assigned) attachCase(rentalId, caseId);
+  });
+  return { assigned, skipped };
+}
+
+function caseIdOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const id = Number(v);
+  if (!Number.isInteger(id) || !getContainerRow(id)) throw new HttpError(404, 'Case not found');
+  return id;
+}
+
+function activeRental(rentalId) {
+  const rental = getRental(rentalId);
+  if (!rental) throw new HttpError(404, 'Rental not found');
+  if (rental.status !== 'active') throw new HttpError(409, `"${rental.name}" is completed — reopen it to change its cases`);
+  return rental;
+}
+
+export function assignCase(rentalId, itemIds, caseId) {
+  const rental = activeRental(rentalId);
+  if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
+  if (itemIds.length > 1000) throw new HttpError(400, 'Too many items selected at once (max 1000)');
+  const cid = caseIdOrNull(caseId);
+  const res = packItems(rentalId, itemIds, cid);
+  if (res.assigned) {
+    const box = cid ? getContainerRow(cid) : null;
+    logEvent({ action: 'packed', rental, container: box, detail: box
+      ? `${res.assigned} item(s) packed into ${box.name} for "${rental.name}"`
+      : `${res.assigned} item(s) taken out of their case on "${rental.name}"` });
+  }
+  return res;
+}
+
+export function addCaseToRental(rentalId, caseId) {
+  const rental = activeRental(rentalId);
+  const cid = caseIdOrNull(caseId);
+  if (!cid) throw new HttpError(400, 'No case chosen');
+  attachCase(rentalId, cid);
+  const box = getContainerRow(cid);
+  logEvent({ action: 'case_added', rental, container: box, detail: `${box.name} added to "${rental.name}"` });
+  return rentalCases(rentalId);
+}
+
+// Takes the case off the rental; its lines stay on the rental, just no longer packed in it
+export function removeCaseFromRental(rentalId, caseId) {
+  const rental = activeRental(rentalId);
+  const box = getContainerRow(caseId);
+  if (!box) throw new HttpError(404, 'Case not found');
+  tx(() => {
+    run('UPDATE rental_items SET case_id = NULL WHERE rental_id = ? AND case_id = ?', rentalId, caseId);
+    run('DELETE FROM rental_cases WHERE rental_id = ? AND container_id = ?', rentalId, caseId);
+    logEvent({ action: 'case_removed', rental, container: box, detail: `${box.name} taken off "${rental.name}"` });
+  });
+  return rentalCases(rentalId);
+}
+
+// Manual picker: add several chosen items at once (optionally straight into a case). Items that cannot go out are skipped with a reason.
+export function addItemsToRental(rentalId, itemIds, caseId = null) {
   const rental = getRental(rentalId);
   if (!rental) throw new HttpError(404, 'Rental not found');
   if (rental.status !== 'active') throw new HttpError(409, `"${rental.name}" is completed — reopen it to add items`);
   if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
   if (itemIds.length > 1000) throw new HttpError(400, 'Too many items selected at once (max 1000)');
+  const cid = caseIdOrNull(caseId);
 
+  const addedIds = [];
   let added = 0;
   let warned = 0;
   const skipped = [];
@@ -163,10 +266,11 @@ export function addItemsToRental(rentalId, itemIds) {
     const item = Number.isInteger(raw) ? getItem(raw) : null;
     if (!item) { skipped.push({ id: raw, barcode: String(raw), reason: 'item not found' }); continue; }
     const r = checkout(item, rental, false);
-    if (r.state === 'added') { added++; if (r.warning) warned++; }
+    if (r.state === 'added') { added++; addedIds.push(item.id); if (r.warning) warned++; }
     else skipped.push({ id: item.id, barcode: item.barcode, reason: r.text });
   }
-  return { added, warned, skipped };
+  if (cid && addedIds.length) packItems(rentalId, addedIds, cid);
+  return { added, warned, skipped, packed: cid ? addedIds.length : 0 };
 }
 
 // Undo a mistaken scan-out: takes the item off the rental as if it was never added

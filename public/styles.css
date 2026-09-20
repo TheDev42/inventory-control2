@@ -287,6 +287,7 @@ tr.is-sold .barcode { color: var(--ink-2); }
 .st-dis { --c: var(--s4); }
 .st-repair { --c: var(--s7); }
 .st-sold { --c: var(--muted); }
+.st-temp { --c: var(--s4); }
 .pat-ok { --c: var(--good); }
 .pat-soon { --c: var(--warning); }
 .pat-bad { --c: var(--critical); }
@@ -357,6 +358,25 @@ table.data tbody tr.pk-blocked td { opacity: .55; }
   margin: 12px -20px -20px; padding: 12px 20px; background: var(--surface); border-top: 1px solid var(--line); border-radius: 0 0 var(--radius) var(--radius);
 }
 
+/* ---------- cases on a rental ---------- */
+.cases-panel { margin-bottom: 16px; }
+.case-list { display: grid; gap: 8px; }
+.case-row {
+  display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+}
+.case-row.on { border-color: var(--accent); }
+.case-meta { color: var(--ink-2); font-size: .85rem; }
+.case-select { width: 100%; min-width: 130px; max-width: 220px; padding: 5px 8px; font-size: .85rem; }
+.bulk-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+th.ck, td.ck { width: 34px; padding-right: 0; }
+.pk-case { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: .85rem; }
+.pk-case select { max-width: 220px; }
+.containers-table td .badge { margin-left: 6px; }
+
 /* ---------- toasts ---------- */
 .toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); }
 .toast { padding: 10px 14px; border-radius: 8px; background: var(--ink); color: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,.25); font-weight: 550; transition: opacity .25s, transform .25s; }
@@ -388,17 +408,28 @@ table.data tbody tr.pk-blocked td { opacity: .55; }
   .inventory-table td:nth-child(6) { grid-area: pa; justify-self: end; text-align: right; }
   .inventory-table td:nth-child(7) { grid-area: ad; justify-self: end; color: var(--ink-2); font-size: .8rem; }
 
-  /* rental lines: barcode + status, item, ends, PAT + date, actions */
-  .rental-lines tbody tr { grid-template-columns: auto 1fr; grid-template-areas: "bc st" "ty de" "en en" "pa ad" "ac ac"; }
-  .rental-lines td:nth-child(1) { grid-area: bc; }
-  .rental-lines td:nth-child(2) { grid-area: ty; font-weight: 550; }
-  .rental-lines td:nth-child(3) { grid-area: de; color: var(--ink-2); }
+  /* rental lines: tick + barcode + status, item, ends, PAT | case, actions */
+  .rental-lines tbody tr { grid-template-columns: 26px auto minmax(0, 1fr); grid-template-areas: "ck bc st" ". it it" ". en en" ". pa cs" ". ac ac"; }
+  .rental-lines td:nth-child(1) { grid-area: ck; }
+  .rental-lines td:nth-child(2) { grid-area: bc; }
+  .rental-lines td:nth-child(3) { grid-area: it; }
   .rental-lines td:nth-child(4) { grid-area: en; }
   .rental-lines td:nth-child(5) { grid-area: pa; }
   .rental-lines td:nth-child(6) { grid-area: st; justify-self: end; text-align: right; }
-  .rental-lines td:nth-child(7) { grid-area: ad; justify-self: end; }
+  .rental-lines td:nth-child(7) { grid-area: cs; }
   .rental-lines td:nth-child(8) { grid-area: ac; display: flex; gap: 8px; text-align: left; }
   .rental-lines td:nth-child(8):empty { display: none; }
+  .case-select { max-width: none; }
+  .case-row { grid-template-columns: 1fr; gap: 6px; }
+
+  /* containers list */
+  .containers-table tbody tr { grid-template-columns: 1fr auto; grid-template-areas: "nm nm" "bc it" "lo st"; }
+  .containers-table td:nth-child(1) { grid-area: nm; }
+  .containers-table td:nth-child(2) { grid-area: bc; }
+  .containers-table td:nth-child(3) { grid-area: lo; color: var(--ink-2); }
+  .containers-table td:nth-child(4) { grid-area: it; justify-self: end; }
+  .containers-table td:nth-child(5) { grid-area: st; justify-self: end; }
+  .containers-table thead { display: none; }
 
   /* picker: tick box, barcode, type, PAT; description and ends underneath */
   .pk-table { max-height: none; overflow: visible; } /* flows with the page; the add bar stays pinned */

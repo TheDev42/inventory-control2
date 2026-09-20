@@ -74,7 +74,8 @@ function renderCtx() {
     body = html`<label class="ctx-field">Container
       <select id="sb-container" aria-label="Container to store items in">
         <option value="">— choose a container —</option>
-        ${lists.containers.map((c) => html`<option value="${c.id}" ${c.id === state.containerId ? 'selected' : ''}>${c.name} (${c.barcode})</option>`)}
+        ${['permanent', 'temporary'].map((kind) => html`<optgroup label="${kind === 'permanent' ? 'Cases you always use' : 'Temporary boxes'}">${lists.containers.filter((c) => c.kind === kind)
+          .map((c) => html`<option value="${c.id}" ${c.id === state.containerId ? 'selected' : ''}>${c.name} (${c.barcode})</option>`)}</optgroup>`)}
       </select></label>`;
   } else if (state.mode === 'pat') {
     body = html`<div class="seg" role="group" aria-label="PAT result">

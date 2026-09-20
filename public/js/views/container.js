@@ -12,7 +12,7 @@ export default async function containerView({ el, args, isActive }) {
     let d;
     try { d = await api.get(`/api/containers/${id}`); } catch (err) { if (isActive()) mount(el, errorBox(err)); return; }
     if (!isActive()) return;
-    const { container: c, items } = d;
+    const { container: c, items, onRental } = d;
     if (!entered) { setMode('store', { containerId: id }); entered = true; }
     const storing = scanState.mode === 'store' && scanState.containerId === id;
     const out = items.filter((i) => i.status === 'on_rental').length;
@@ -21,8 +21,8 @@ export default async function containerView({ el, args, isActive }) {
       <div class="crumbs"><a href="#/containers">Containers</a> / ${c.name}</div>
       <div class="page-head">
         <div>
-          <h1>${c.name}</h1>
-          <div class="sub"><span class="barcode">${c.barcode}</span>${c.location ? html` · ${c.location}` : ''} · ${plural(items.length, 'item')}${out ? ` (${out} out on rental)` : ''}</div>
+          <h1>${c.name} ${c.kind === 'temporary' ? html`<span class="badge st-temp" style="vertical-align:middle"><span class="ico">◷</span>Temporary box</span>` : ''}</h1>
+          <div class="sub"><span class="barcode">${c.barcode}</span>${onRental ? html` · <span class="badge st-rental"><span class="ico">➜</span>Out</span> on <a href="#/rentals/${onRental.id}">${onRental.name}</a>` : ''}${c.location ? html` · ${c.location}` : ''} · ${plural(items.length, 'item')}${out ? ` (${out} out on rental)` : ''}</div>
           ${c.notes ? html`<div class="muted" style="margin-top:6px;white-space:pre-wrap">${c.notes}</div>` : ''}
         </div>
         <div class="actions">
@@ -37,6 +37,9 @@ export default async function containerView({ el, args, isActive }) {
         <div class="form-grid">
           <div class="field"><label for="e-barcode">Barcode *</label><input id="e-barcode" name="barcode" type="text" required value="${c.barcode}"></div>
           <div class="field"><label for="e-name">Name *</label><input id="e-name" name="name" type="text" required value="${c.name}"></div>
+          <div class="field"><label for="e-kind">Type</label><select id="e-kind" name="kind">
+            <option value="permanent" ${c.kind === 'permanent' ? 'selected' : ''}>Permanent case (one you always use)</option>
+            <option value="temporary" ${c.kind === 'temporary' ? 'selected' : ''}>Temporary box (a one-off)</option></select></div>
           <div class="field"><label for="e-loc">Location</label><input id="e-loc" name="location" type="text" value="${c.location || ''}"></div>
           <div class="field wide"><label for="e-notes">Notes</label><textarea id="e-notes" name="notes" rows="2">${c.notes || ''}</textarea></div>
         </div>

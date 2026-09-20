@@ -1,4 +1,4 @@
-import { html, raw, $, esc, cap, itemTitle, ends, outputsOf, statusBadge, patBadge, fmtDate } from './util.js';
+import { api, html, raw, $, esc, cap, itemTitle, ends, outputsOf, statusBadge, patBadge, fmtDate } from './util.js';
 import { app } from './state.js';
 
 /* ---------- shared item form fields (used by new/edit item and bulk add) ---------- */
@@ -135,6 +135,24 @@ export function itemsTable(items, { extraHead = [], extra = () => [], rowClass =
       <td>${patBadge(it.pat_status)}${it.next_pat_due && it.pat_status !== 'na' ? html` <span class="muted small-text">${fmtDate(it.next_pat_due)}</span>` : ''}</td>
       ${extra(it).map((c) => html`<td>${c}</td>`)}
     </tr>`)}</tbody></table></div>`;
+}
+
+// <option>s for choosing a case: your permanent cases and the temporary boxes are both listed (grouped)
+export const caseOptions = (containers, selected = null) => {
+  const group = (label, kind) => {
+    const rows = containers.filter((c) => c.kind === kind);
+    return rows.length
+      ? html`<optgroup label="${label}">${rows.map((c) => html`<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${c.name} (${c.barcode})</option>`)}</optgroup>`
+      : '';
+  };
+  return html`${group('Cases you always use', 'permanent')}${group('Temporary boxes', 'temporary')}`;
+};
+
+// Asks for a name and makes a temporary box (the barcode is generated). Resolves to the new container, or null if cancelled.
+export async function newTempBox() {
+  const name = prompt('Name for the new temporary box, e.g. "Box 1". Leave it blank to number it automatically:', '');
+  if (name === null) return null;
+  return api.post('/api/containers', { kind: 'temporary', name });
 }
 
 export const errorBox = (err) => html`<div class="error-box"><strong>Something went wrong:</strong> ${err.message || err}</div>`;

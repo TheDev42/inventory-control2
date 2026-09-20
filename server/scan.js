@@ -4,7 +4,7 @@ import {
   itemSelect, getItem, getItemByBarcode, getContainerByBarcode, describeItem,
   returnItem, recordPat,
 } from './items.js';
-import { getRental, checkout } from './rentals.js';
+import { getRental, checkout, attachCase, packItems } from './rentals.js';
 
 /*
  * One endpoint handles every scan. The client sends the barcode plus the current mode, and gets back a
@@ -39,18 +39,25 @@ function scanOut(item, container, { rentalId }) {
     return result('error', `${item.barcode} is ${r.text}`, { item: fresh });
   }
 
+  // The case itself goes on the rental, and whatever it sends out is packed into it (so the shipment list shows "in case X")
+  attachCase(rental.id, container.id);
   const contents = all(`${itemSelect()} WHERE i.container_id = ? ORDER BY i.barcode`, container.id);
-  if (!contents.length) return result('warn', `${container.name} is empty`, { container });
+  if (!contents.length) {
+    return result('out', `OUT → ${rental.name}: case ${container.name} (empty — add its items on the rental page and pack them into it)`, { container, rentalId: rental.id });
+  }
   let added = 0;
   const problems = [];
+  const packedIds = [];
   let warned = 0;
   for (const it of contents) {
     const r = checkout(it, rental, true);
-    if (r.state === 'added') { added++; if (r.warning) warned++; }
-    else if (r.state !== 'duplicate') problems.push(`${it.barcode} ${r.text}`);
+    if (r.state === 'added') { added++; packedIds.push(it.id); if (r.warning) warned++; }
+    else if (r.state === 'duplicate') packedIds.push(it.id);
+    else problems.push(`${it.barcode} ${r.text}`);
   }
+  if (packedIds.length) packItems(rental.id, packedIds, container.id);
   const skipped = problems.length ? ` — ${problems.length} skipped: ${problems.slice(0, 3).join('; ')}${problems.length > 3 ? '…' : ''}` : '';
-  if (!added) return result('error', `Nothing added from ${container.name}${skipped || ' (all already on this rental)'}`, { container });
+  if (!added) return result(problems.length ? 'error' : 'warn', `Nothing new from ${container.name}${skipped || ' (all its items were already on this rental)'}`, { container, rentalId: rental.id });
   const pat = warned ? ` ⚠ ${warned} with PAT due/overdue` : '';
   return result(problems.length || warned ? 'out_warn' : 'out',
     `OUT → ${rental.name}: ${added} item(s) from ${container.name}${pat}${skipped}`, { container, rentalId: rental.id });
@@ -76,10 +83,24 @@ function scanReturn(item, container) {
     }
     return result('warn', `${item.barcode} is already in stock`, { item });
   }
-  const out = all(`${itemSelect()} WHERE i.container_id = ? AND i.status IN ('on_rental','lost','disassembled')`, container.id);
-  if (!out.length) return result('warn', `Nothing to return from ${container.name}`, { container });
-  for (const it of out) returnItem(it);
-  return result('return', `RETURNED: ${out.length} item(s) from ${container.name}`, { container });
+  // A case scanned back is just the case: it does NOT bring its items back. Every item is scanned in on its own.
+  const wasOut = all(
+    `SELECT rc.id, r.name AS rental_name FROM rental_cases rc JOIN rentals r ON r.id = rc.rental_id
+     WHERE rc.container_id = ? AND rc.returned_at IS NULL`, container.id);
+  const stillOut = all(
+    `${itemSelect()} WHERE i.status = 'on_rental'
+       AND (i.container_id = ? OR i.id IN (SELECT item_id FROM rental_items WHERE case_id = ? AND outcome IS NULL))
+     ORDER BY i.barcode`, container.id, container.id);
+  if (wasOut.length) {
+    run('UPDATE rental_cases SET returned_at = ? WHERE container_id = ? AND returned_at IS NULL', nowIso(), container.id);
+    logEvent({ action: 'case_back', container, detail: `Case ${container.name} scanned back${stillOut.length ? ` — ${stillOut.length} item(s) still to scan in` : ''}` });
+  }
+  if (stillOut.length) {
+    const some = stillOut.slice(0, 4).map((it) => it.barcode).join(', ') + (stillOut.length > 4 ? '…' : '');
+    return result('warn', `CASE BACK: ${container.name} — ${stillOut.length} item(s) still out (${some}). Scan each item individually to return it`, { container });
+  }
+  if (!wasOut.length) return result('warn', `${container.name} scanned back, but it was not out on a rental`, { container });
+  return result('return', `CASE BACK: ${container.name} — nothing from it is still out`, { container });
 }
 
 /* ---------- store in container ---------- */

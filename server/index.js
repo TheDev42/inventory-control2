@@ -12,7 +12,7 @@ import * as containers from './containers.js';
 import { handleScan } from './scan.js';
 import { dashboard } from './dashboard.js';
 import { writeRentalPdf, safeFilename } from './pdf.js';
-import { writeLabelPdf, code128B, contentsLines } from './label.js';
+import { writeLabelPdf, code128B } from './label.js';
 
 const app = express();
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -105,6 +105,7 @@ app.delete('/api/items/:id', (req, res) => { items.deleteItem(id(req)); res.json
 app.post('/api/items/:id/marker', (req, res) => res.json(items.setMarker(id(req), req.body?.status, req.body?.note)));
 app.post('/api/items/:id/comments', (req, res) => res.status(201).json(items.addComment(id(req), req.body?.text)));
 app.post('/api/items/:id/pat', (req, res) => res.status(201).json(items.recordPat(id(req), req.body || {})));
+app.delete('/api/items/:id/pat/:testId', (req, res) => res.json(items.deletePatTest(id(req), parseInt(req.params.testId, 10))));
 app.post('/api/items/:id/unstore', (req, res) => res.json(containers.unstoreItem(id(req))));
 app.post('/api/items/:id/return', (req, res) => {
   const item = items.getItem(id(req));
@@ -120,10 +121,14 @@ app.post('/api/rentals', (req, res) => res.status(201).json(rentals.createRental
 app.get('/api/rentals/:id', (req, res) => res.json(rentals.rentalDetail(id(req))));
 app.put('/api/rentals/:id', (req, res) => res.json(rentals.updateRental(id(req), req.body || {})));
 app.delete('/api/rentals/:id', (req, res) => { rentals.deleteRental(id(req)); res.json({ ok: true }); });
-app.post('/api/rentals/:id/complete', (req, res) => res.json(rentals.completeRental(id(req), !!req.body?.returnAll)));
+app.post('/api/rentals/:id/complete', (req, res) => res.json(rentals.completeRental(id(req), !!req.body?.markLost)));
 app.post('/api/rentals/:id/reopen', (req, res) => res.json(rentals.reopenRental(id(req))));
 // Manual picker: add the chosen items to the rental in one go (same rules as scanning them OUT)
-app.post('/api/rentals/:id/items', (req, res) => res.json(rentals.addItemsToRental(id(req), req.body?.itemIds)));
+app.post('/api/rentals/:id/items', (req, res) => res.json(rentals.addItemsToRental(id(req), req.body?.itemIds, req.body?.caseId)));
+// Shipment: which cases are on the rental, and which case each line is packed in (caseId null/"" = no case)
+app.put('/api/rentals/:id/case', (req, res) => res.json(rentals.assignCase(id(req), req.body?.itemIds, req.body?.caseId)));
+app.post('/api/rentals/:id/cases', (req, res) => res.status(201).json(rentals.addCaseToRental(id(req), req.body?.caseId)));
+app.delete('/api/rentals/:id/cases/:caseId', (req, res) => res.json(rentals.removeCaseFromRental(id(req), parseInt(req.params.caseId, 10))));
 app.delete('/api/rentals/:id/items/:itemId', (req, res) => {
   res.json(rentals.removeFromRental(id(req), parseInt(req.params.itemId, 10)));
 });
@@ -141,31 +146,33 @@ app.get('/api/rentals/:id/pdf', sendRentalPdf('internal', 'internal-hire-sheet')
 app.get('/api/rentals/:id/client-pdf', sendRentalPdf('client', 'client-hire-list'));
 
 /* ---------- containers ---------- */
-app.get('/api/containers', (req, res) => res.json(containers.listContainers(req.query.q)));
+app.get('/api/containers', (req, res) => res.json(containers.listContainers(req.query.q, req.query.kind)));
 app.post('/api/containers', (req, res) => res.status(201).json(containers.createContainer(req.body || {})));
 app.get('/api/containers/:id', (req, res) => res.json(containers.containerDetail(id(req))));
 app.put('/api/containers/:id', (req, res) => res.json(containers.updateContainer(id(req), req.body || {})));
 app.delete('/api/containers/:id', (req, res) => { containers.deleteContainer(id(req)); res.json({ ok: true }); });
-// 4" x 6" case label. Query: client, event, date (YYYY-MM-DD), box, contents (one line per row; leave the parameter out
-// to use what is in the case), download=1 to save instead of opening.
+// 4" x 6" case label. Query: client, event, date (YYYY-MM-DD), box, contents (one line per row), download=1 to save instead of
+// opening. Any of those left out is filled in from the case (its contents, and the rental it is packed for), like the form does.
 app.get('/api/containers/:id/label-defaults', (req, res) => res.json(containers.labelDefaults(id(req))));
 app.get('/api/containers/:id/label.pdf', (req, res) => {
-  const { container, items: inside } = containers.containerDetail(id(req));
-  try { code128B(container.barcode); } catch (err) { throw new HttpError(400, `${err.message} (container ${container.barcode})`); }
+  const defaults = containers.labelDefaults(id(req)); // 404 for an unknown container
+  try { code128B(defaults.barcode); } catch (err) { throw new HttpError(400, `${err.message} (container ${defaults.barcode})`); }
   const q = req.query;
-  const text = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
-  const contents = typeof q.contents === 'string'
-    ? q.contents.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim().slice(0, 120)).filter(Boolean).slice(0, 80)
-    : contentsLines(inside);
+  const clean = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const field = (key, max) => clean(typeof q[key] === 'string' ? q[key] : defaults[key], max);
+  const contents = (typeof q.contents === 'string' ? q.contents : defaults.contents)
+    .split(/\r?\n/).map((l) => clean(l, 120)).filter(Boolean).slice(0, 80);
   res.set({
     'Content-Type': 'application/pdf',
-    'Content-Disposition': `${q.download === '1' ? 'attachment' : 'inline'}; filename="label-${safeFilename(container.name)}.pdf"`,
+    'Content-Disposition': `${q.download === '1' ? 'attachment' : 'inline'}; filename="label-${safeFilename(defaults.name)}.pdf"`,
   });
   writeLabelPdf(res, {
-    company: COMPANY, barcode: container.barcode, name: container.name,
-    client: text(q.client, 60), event: text(q.event, 60), date: text(q.date, 20), box: text(q.box, 20), contents,
+    company: COMPANY, barcode: defaults.barcode, name: defaults.name,
+    client: field('client', 60), event: field('event', 60), date: field('date', 20), box: field('box', 20), contents,
   });
 });
+// Deletes temporary boxes that have finished their job (used on a rental, now empty and not on an active rental)
+app.post('/api/containers/clear-temporary', (_req, res) => res.json({ removed: containers.clearFinishedTemporary() }));
 app.post('/api/containers/:id/empty', (req, res) => res.json({ removed: containers.emptyContainer(id(req)) }));
 
 /* ---------- activity + backup ---------- */

@@ -388,6 +388,23 @@ export function recordPat(itemId, { result, tester, notes, date } = {}) {
   return getItem(itemId);
 }
 
+// Removes one PAT test (a mistaken click, a wrong date...). The item's "last test / next due" are worked out again from the
+// tests that remain (none left = never tested). Its status is left alone: if a deleted FAIL had put it in Repair, restore it yourself.
+export function deletePatTest(itemId, testId) {
+  const item = getItem(itemId);
+  if (!item) throw new HttpError(404, 'Item not found');
+  const test = get('SELECT * FROM pat_tests WHERE id = ? AND item_id = ?', testId, itemId);
+  if (!test) throw new HttpError(404, 'PAT test not found');
+  tx(() => {
+    run('DELETE FROM pat_tests WHERE id = ?', testId);
+    const latest = get('SELECT * FROM pat_tests WHERE item_id = ? ORDER BY tested_at DESC, id DESC LIMIT 1', itemId);
+    run('UPDATE items SET last_pat_date = ?, last_pat_result = ?, next_pat_due = ?, updated_at = ? WHERE id = ?',
+      latest?.tested_at ?? null, latest?.result ?? null, latest?.next_due ?? null, nowIso(), itemId);
+    logEvent({ action: 'pat_deleted', item, detail: `Deleted the PAT ${test.result.toUpperCase()} test from ${test.tested_at}` });
+  });
+  return getItem(itemId);
+}
+
 export function itemDetail(id) {
   const item = getItem(id);
   if (!item) throw new HttpError(404, 'Item not found');

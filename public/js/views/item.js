@@ -7,12 +7,14 @@ import { errorBox } from '../ui.js';
 
 export default async function itemView({ el, args, isActive }) {
   const id = Number(args[0]);
+  let it_status_is_repair = false; // remembered from the last render, for the delete-PAT-test confirmation
 
   async function load() {
     let d;
     try { d = await api.get(`/api/items/${id}`); } catch (err) { if (isActive()) mount(el, errorBox(err)); return; }
     if (!isActive()) return;
     const it = d.item;
+    it_status_is_repair = it.status === 'repair';
     const missing = ['lost', 'disassembled', 'repair'].includes(it.status);
     const onRental = it.status === 'on_rental';
     const sold = it.status === 'sold';
@@ -115,7 +117,8 @@ export default async function itemView({ el, args, isActive }) {
             </form>
             ${d.pat_tests.length ? html`<h3 style="margin:16px 0 6px">History</h3><ul class="feed">${d.pat_tests.map((t) => html`
               <li><span class="what"><strong>${t.result === 'pass' ? '✓ Pass' : '✕ Fail'}</strong> · ${fmtDate(t.tested_at)}${t.tester ? html` · ${t.tester}` : ''}${t.notes ? html`<div class="muted small-text">${t.notes}</div>` : ''}</span>
-              <span class="when">${t.next_due ? 'due ' + fmtDate(t.next_due) : ''}</span></li>`)}</ul>` : ''}
+              <span class="when">${t.next_due ? 'due ' + fmtDate(t.next_due) : ''}</span>
+              <button class="btn ghost small" data-del-pat="${t.id}" title="Delete this PAT test">Delete</button></li>`)}</ul>` : ''}
           </section>`}
 
           <section class="card"><h2>Danger zone</h2>
@@ -148,6 +151,15 @@ export default async function itemView({ el, args, isActive }) {
     if (act === 'unstore') run(() => api.post(`/api/items/${id}/unstore`), 'Removed from container');
     if (act === 'delete' && confirm('Delete this item permanently, including its comments and PAT history?')) {
       api.del(`/api/items/${id}`).then(() => { toast('Item deleted', 'ok'); notifyChanged(); location.hash = '#/inventory'; }).catch((err) => toast(err.message, 'error', 5000));
+    }
+    const delPat = e.target.closest('[data-del-pat]');
+    if (delPat) {
+      const t = delPat.closest('li').querySelector('.what').textContent.replace(/\s+/g, ' ').trim();
+      const failWarn = it_status_is_repair ? ' The item is in REPAIR; deleting the test does not move it back, so restore it yourself if that was a mistake.' : '';
+      if (confirm(`Delete this PAT test (${t})? The item's last test and due date are recalculated from the tests that remain.${failWarn}`)) {
+        run(() => api.del(`/api/items/${id}/pat/${delPat.dataset.delPat}`), 'PAT test deleted');
+      }
+      return;
     }
     const del = e.target.closest('[data-del-comment]');
     if (del && confirm('Delete this comment?')) run(() => api.del(`/api/comments/${del.dataset.delComment}`));
