@@ -132,6 +132,7 @@ function ensureColumn(table, col, ddl) {
 }
 ensureColumn('items', 'input_connector', 'TEXT');
 ensureColumn('items', 'outputs', 'TEXT');
+ensureColumn('items', 'owner', "TEXT NOT NULL DEFAULT 'company'"); // company | personal
 ensureColumn('containers', 'kind', "TEXT NOT NULL DEFAULT 'permanent'"); // permanent (always used) | temporary (one-off box)
 ensureColumn('rental_items', 'case_id', 'INTEGER REFERENCES containers(id) ON DELETE SET NULL'); // the case this line is packed in for the shipment
 

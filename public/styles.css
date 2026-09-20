@@ -288,6 +288,7 @@ tr.is-sold .barcode { color: var(--ink-2); }
 .st-repair { --c: var(--s7); }
 .st-sold { --c: var(--muted); }
 .st-temp { --c: var(--s4); }
+.st-mine { --c: var(--s3); }
 .pat-ok { --c: var(--good); }
 .pat-soon { --c: var(--warning); }
 .pat-bad { --c: var(--critical); }
@@ -409,15 +410,16 @@ table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 65
   .cards table.data td { padding: 0; border: 0; } /* beats the desktop cell padding/border */
   .cards td:empty { display: none; }
 
-  /* inventory: barcode + date on top, then item, ends | length, status | PAT */
-  .inventory-table tbody tr[data-id] { grid-template-columns: 1fr auto; grid-template-areas: "bc ad" "it it" "en le" "st pa"; }
-  .inventory-table td:nth-child(1) { grid-area: bc; }
-  .inventory-table td:nth-child(2) { grid-area: it; }
-  .inventory-table td:nth-child(3) { grid-area: en; }
-  .inventory-table td:nth-child(4) { grid-area: le; justify-self: end; color: var(--ink-2); }
-  .inventory-table td:nth-child(5) { grid-area: st; }
-  .inventory-table td:nth-child(6) { grid-area: pa; justify-self: end; text-align: right; }
-  .inventory-table td:nth-child(7) { grid-area: ad; justify-self: end; color: var(--ink-2); font-size: .8rem; }
+  /* inventory: tick + barcode + date on top, then item, ends | length, status | PAT */
+  .inventory-table tbody tr[data-id] { grid-template-columns: 26px 1fr auto; grid-template-areas: "ck bc ad" ". it it" ". en le" ". st pa"; }
+  .inventory-table td:nth-child(1) { grid-area: ck; }
+  .inventory-table td:nth-child(2) { grid-area: bc; }
+  .inventory-table td:nth-child(3) { grid-area: it; }
+  .inventory-table td:nth-child(4) { grid-area: en; }
+  .inventory-table td:nth-child(5) { grid-area: le; justify-self: end; color: var(--ink-2); }
+  .inventory-table td:nth-child(6) { grid-area: st; }
+  .inventory-table td:nth-child(7) { grid-area: pa; justify-self: end; text-align: right; }
+  .inventory-table td:nth-child(8) { grid-area: ad; justify-self: end; color: var(--ink-2); font-size: .8rem; }
 
   /* rental lines: tick + barcode + status, item, ends, PAT | case, actions */
   .rental-lines tbody tr { grid-template-columns: 26px auto minmax(0, 1fr); grid-template-areas: "ck bc st" ". it it" ". en en" ". pa cs" ". ac ac"; }

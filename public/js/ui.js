@@ -46,6 +46,8 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
         <div class="outputs" data-outputs>${(outs.length ? outs : [undefined]).map((o) => outputRow(o))}</div>
         <div><button class="btn secondary small" type="button" data-add-output>+ Add another output</button></div>
         <span class="hint">One line per kind of connector, with how many there are — e.g. 6 × 16A Cee (blue) and 2 × 13A.</span></div>
+      <div class="field"><label for="f-owner">Owner</label>
+        <select id="f-owner" name="owner">${app.meta.owners.map((o) => html`<option value="${o}" ${(item.owner || 'company') === o ? 'selected' : ''}>${app.meta.ownerLabels[o]}</option>`)}</select></div>
       <div class="field"><label for="f-length">Length (m)</label>
         <input id="f-length" name="length_m" type="number" step="0.01" min="0" value="${item.length_m ?? ''}"></div>
       <div class="field"><span class="lbl">PAT testing</span>
@@ -109,6 +111,7 @@ export function readItemFields(root) {
     length_m: v('length_m').value,
     pat_required: v('pat_required').checked,
     pat_interval_months: v('pat_interval_months').value,
+    owner: v('owner').value,
   };
   if (v('input_connector')) {
     out.input_connector = v('input_connector').value.trim();

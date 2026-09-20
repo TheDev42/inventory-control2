@@ -1,4 +1,5 @@
 import { api, html, mount, $, debounce, cap, itemTitle, ends, plural, qs } from '../util.js';
+import { app } from '../state.js';
 
 // Where the items of a group are right now (colours match the dashboard's "Stock by type")
 const PLACES = [
@@ -15,13 +16,14 @@ const SORTS = [['name', 'Category, then name'], ['total', 'Most owned first'], [
 const label = (g) => (g.name && g.name.trim()) || itemTitle(g);
 
 // Link into the inventory list for this group (optionally only the ones with a given status)
-const inventoryLink = (g, status) => '#/inventory' + qs({ category: g.category, type: g.type, q: g.name || '', status });
+const inventoryLink = (g, status, owner) => '#/inventory' + qs({ category: g.category, type: g.type, q: g.name || '', status, owner });
 
 export default async function overviewView({ el, isActive }) {
   let data = null;
   let q = '';
   let category = '';
   let sort = 'name';
+  let owner = ''; // '' = everyone's, otherwise company / personal
 
   const matches = (g) => {
     if (category && g.category !== category) return false;
@@ -40,11 +42,11 @@ export default async function overviewView({ el, isActive }) {
     const categories = [...new Set(data.groups.map((g) => g.category))];
 
     const row = (g) => html`<tr>
-      <td><div class="cell-main">${label(g)}</div><div class="cell-sub">${itemTitle(g)}${g.length_m != null ? ` · ${g.length_m} m` : ''}</div></td>
+      <td><div class="cell-main">${label(g)}</div><div class="cell-sub">${itemTitle(g)}${g.length_m != null ? ` · ${g.length_m} m` : ''}${g.personal > 0 && g.personal < g.total ? ` · ${g.personal} of ${g.total} are mine` : g.personal === g.total && g.total > 0 && !owner ? ' · all mine' : ''}</div></td>
       <td>${ends(g)}</td>
-      <td class="num"><a class="big-num" href="${inventoryLink(g)}" title="Show all ${g.total} in the inventory">${g.total}</a></td>
+      <td class="num"><a class="big-num" href="${inventoryLink(g, undefined, owner)}" title="Show all ${g.total} in the inventory">${g.total}</a></td>
       <td class="num avail ${g.available === 0 ? 'none' : g.available === g.total ? 'all' : ''}">
-        <a class="big-num" href="${inventoryLink(g, 'in_stock')}" title="Show the ${g.available} available">${g.available}</a>
+        <a class="big-num" href="${inventoryLink(g, 'in_stock', owner)}" title="Show the ${g.available} available">${g.available}</a>
         <span class="track" role="img" aria-label="${PLACES.filter((p) => g[p.key]).map((p) => `${g[p.key]} ${p.label.toLowerCase()}`).join(', ')}">${PLACES.filter((p) => g[p.key] > 0)
           .map((p) => html`<span class="seg-fill" style="--c:var(${p.c});flex:${g[p.key]}" title="${g[p.key]} ${p.label.toLowerCase()}"></span>`)}</span></td>
       <td>${PLACES.slice(1).some((p) => g[p.key] > 0) ? html`<div class="elsewhere">${PLACES.slice(1).filter((p) => g[p.key] > 0).map((p) => html`<span class="chip-place"><span class="dot" style="--c:var(${p.c})"></span>${g[p.key]} ${p.label.toLowerCase()}</span>`)}</div>` : ''}</td>
@@ -76,19 +78,20 @@ export default async function overviewView({ el, isActive }) {
     <div class="kpis" id="ov-kpis"></div>
     <div class="toolbar">
       <div class="grow"><input type="search" id="ov-q" placeholder="Search: description, type, connector, length…" aria-label="Search the overview"></div>
+      <select id="ov-owner" aria-label="Owner"><option value="">All owners</option>${app.meta.owners.map((o) => html`<option value="${o}">${app.meta.ownerLabels[o]}</option>`)}</select>
       <select id="ov-category" aria-label="Category"><option value="">All categories</option></select>
       <select id="ov-sort" aria-label="Sort">${SORTS.map(([v, l]) => html`<option value="${v}">${l}</option>`)}</select>
     </div>
     <div id="ov-results"><div class="empty">Loading…</div></div>`);
 
   async function load() {
-    const d = await api.get('/api/overview');
+    const d = await api.get('/api/overview' + qs({ owner }));
     if (!isActive()) return;
     data = d;
     const t = d.totals;
     mount($('#ov-kpis', el), html`
       <div class="kpi"><div class="label">Kinds of item</div><div class="value">${t.kinds}</div></div>
-      <div class="kpi"><div class="label">Items you own</div><div class="value">${t.total}</div></div>
+      <div class="kpi"><div class="label">${owner === 'personal' ? 'Items I own' : owner === 'company' ? 'Company items' : 'Items you own'}</div><div class="value">${t.total}</div></div>
       <div class="kpi"><div class="label"><span class="dot" style="--c:var(--s1)"></span>Available</div><div class="value">${t.available}</div></div>
       <div class="kpi"><div class="label"><span class="dot" style="--c:var(--s2)"></span>On rental</div><div class="value">${t.on_rental}</div></div>
       <div class="kpi"><div class="label"><span class="dot" style="--c:var(--s7)"></span>Repair, lost or taken apart</div><div class="value">${t.repair + t.lost + t.disassembled}</div>
@@ -100,6 +103,7 @@ export default async function overviewView({ el, isActive }) {
   }
 
   $('#ov-q', el).addEventListener('input', debounce((e) => { q = e.target.value.trim(); render(); }, 150));
+  $('#ov-owner', el).addEventListener('change', (e) => { owner = e.target.value; load(); });
   $('#ov-category', el).addEventListener('change', (e) => { category = e.target.value; render(); });
   $('#ov-sort', el).addEventListener('change', (e) => { sort = e.target.value; render(); });
 

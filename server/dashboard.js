@@ -1,5 +1,6 @@
 import { all, get, today } from './db.js';
 import { itemSelect, patCase } from './items.js';
+import { parseOwner } from './catalog.js';
 
 export function dashboard() {
   const t = today();
@@ -51,21 +52,24 @@ export function dashboard() {
 // Stock overview: everything you own, grouped by identical details (same category, type, description, connectors and
 // length; capitals and stray spaces don't count as a difference), with how many there are and how many are available
 // (in stock). Sold items are no longer yours, so they are left out. Each group is labelled with its most common spelling.
-export function overview() {
+export function overview(ownerFilter) {
+  const owner = ownerFilter ? parseOwner(ownerFilter) : null;
   const norm = (v) => String(v ?? '').trim().toLowerCase();
   const rows = all(
-    `SELECT category, type, name, male_connector, female_connector, input_connector, outputs, length_m, status
-     FROM items WHERE status != 'sold' ORDER BY id`
+    `SELECT category, type, name, male_connector, female_connector, input_connector, outputs, length_m, status, owner
+     FROM items WHERE status != 'sold' ${owner ? 'AND owner = ?' : ''} ORDER BY id`,
+    ...(owner ? [owner] : [])
   );
   const groups = new Map();
   for (const r of rows) {
     const key = [r.category, r.type, norm(r.name), norm(r.male_connector), norm(r.female_connector), norm(r.input_connector), r.outputs ?? '', r.length_m ?? ''].join('\u0001');
     let g = groups.get(key);
     if (!g) {
-      g = { category: r.category, type: r.type, outputs: r.outputs, length_m: r.length_m, total: 0, available: 0, on_rental: 0, repair: 0, lost: 0, disassembled: 0, spellings: {} };
+      g = { category: r.category, type: r.type, outputs: r.outputs, length_m: r.length_m, personal: 0, total: 0, available: 0, on_rental: 0, repair: 0, lost: 0, disassembled: 0, spellings: {} };
       groups.set(key, g);
     }
     g.total++;
+    if (r.owner === 'personal') g.personal++;
     if (r.status === 'in_stock') g.available++;
     else if (g[r.status] !== undefined) g[r.status]++;
     for (const f of ['name', 'male_connector', 'female_connector', 'input_connector']) {

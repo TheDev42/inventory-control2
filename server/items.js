@@ -1,7 +1,7 @@
 import {
   all, get, run, tx, today, addDays, addMonths, nowIso, logEvent, HttpError,
 } from './db.js';
-import { CATALOG, CONNECTOR_TYPES, OUTPUT_TYPES, STATUS_LABEL, cap, normalizeBarcode, parseOutputs, formatOutputs } from './catalog.js';
+import { CATALOG, CONNECTOR_TYPES, OUTPUT_TYPES, STATUS_LABEL, cap, normalizeBarcode, parseOutputs, formatOutputs, parseOwner } from './catalog.js';
 
 /* ---------- SQL fragments ---------- */
 
@@ -58,6 +58,7 @@ const SORTS = {
   female: { expr: 'i.female_connector', text: true },
   length: { expr: 'i.length_m', text: false },
   status: { expr: 'i.status', text: true },
+  owner: { expr: 'i.owner', text: true },
   rental: { expr: 'r.name', text: true },
   container: { expr: 'c.name', text: true },
   pat: { expr: () => patCase(), text: true },
@@ -71,11 +72,11 @@ const escapeLike = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
 export function listItems(query = {}) {
   const where = [];
   const args = [];
-  const exact = { category: 'i.category', type: 'i.type', status: 'i.status', rental_id: 'i.rental_id', container_id: 'i.container_id' };
+  const exact = { category: 'i.category', type: 'i.type', status: 'i.status', owner: 'i.owner', rental_id: 'i.rental_id', container_id: 'i.container_id' };
   for (const [key, col] of Object.entries(exact)) {
     if (query[key] !== undefined && query[key] !== '') {
       where.push(`${col} = ?`);
-      args.push(key === 'category' ? String(query[key]).toUpperCase() : query[key]);
+      args.push(key === 'category' ? String(query[key]).toUpperCase() : key === 'owner' ? (parseOwner(query[key]) ?? query[key]) : query[key]);
     }
   }
   if (query.male) { where.push('i.male_connector = ? COLLATE NOCASE'); args.push(query.male); }
@@ -91,6 +92,7 @@ export function listItems(query = {}) {
     const like = `%${escapeLike(term)}%`;
     const cols = [
       'i.barcode', 'i.category', 'i.type', 'i.name', 'i.male_connector', 'i.female_connector', 'i.input_connector', 'i.outputs',
+      "(CASE i.owner WHEN 'personal' THEN 'personal mine me' ELSE 'company' END)",
       "replace(i.status, '_', ' ')", 'r.name', 'c.name', 'c.barcode', 'CAST(i.length_m AS TEXT)',
       'i.last_pat_date', 'i.next_pat_due', `replace(${pat}, '_', ' ')`,
     ];
@@ -175,6 +177,8 @@ export function cleanItem(d) {
   }
   const hasConnectors = CONNECTOR_TYPES.has(type);
   const isDistro = OUTPUT_TYPES.has(type);
+  const owner = parseOwner(d.owner);
+  if (!owner) throw new HttpError(400, `Invalid owner "${d.owner}" (use company or me)`);
   const outputs = isDistro ? cleanOutputs(d.outputs) : [];
   const length = str(d.length_m);
   if (length !== null && !Number.isFinite(Number(length))) throw new HttpError(400, `Invalid length "${d.length_m}"`);
@@ -194,6 +198,7 @@ export function cleanItem(d) {
     name: str(d.name),
     male_connector: hasConnectors ? str(d.male_connector) : null,
     female_connector: hasConnectors ? str(d.female_connector) : null,
+    owner,
     input_connector: isDistro ? str(d.input_connector) : null,
     outputs: outputs.length ? JSON.stringify(outputs) : null,
     length_m: length === null ? null : Number(length),
@@ -209,10 +214,10 @@ function insertItem(c) {
   const ts = nowIso();
   const res = run(
     `INSERT INTO items (barcode, category, type, name, male_connector, female_connector, input_connector, outputs, length_m,
-       pat_required, pat_interval_months, container_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       pat_required, pat_interval_months, container_id, owner, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, ts, ts
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, ts, ts
   );
   return getItem(Number(res.lastInsertRowid));
 }
@@ -266,13 +271,32 @@ export function updateItem(id, data) {
   if (existing.status === 'sold' && c.container_id) throw new HttpError(409, 'Sold items cannot be stored in a container');
   run(
     `UPDATE items SET barcode=?, category=?, type=?, name=?, male_connector=?, female_connector=?, input_connector=?, outputs=?, length_m=?,
-       pat_required=?, pat_interval_months=?, container_id=?, updated_at=? WHERE id=?`,
+       pat_required=?, pat_interval_months=?, container_id=?, owner=?, updated_at=? WHERE id=?`,
     c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, nowIso(), id
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, nowIso(), id
   );
   const item = getItem(id);
   logEvent({ action: 'edited', item, detail: 'Details edited' });
   return item;
+}
+
+// Sets the owner of many items at once (e.g. everything you personally own). Unknown ids are ignored.
+export function setOwner(itemIds, ownerValue) {
+  const owner = parseOwner(ownerValue);
+  if (!owner || String(ownerValue ?? '').trim() === '') throw new HttpError(400, `Invalid owner "${ownerValue}" (use company or me)`);
+  if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
+  if (itemIds.length > 5000) throw new HttpError(400, 'Too many items at once (max 5000)');
+  const ids = [...new Set(itemIds.map(Number).filter(Number.isInteger))];
+  let updated = 0;
+  tx(() => {
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      updated += run(`UPDATE items SET owner = ?, updated_at = ? WHERE owner != ? AND id IN (${chunk.map(() => '?').join(',')})`,
+        owner, nowIso(), owner, ...chunk).changes;
+    }
+    if (updated) logEvent({ action: 'owner', detail: `Owner of ${updated} item(s) set to ${owner === 'personal' ? 'me (personal)' : 'the company'}` });
+  });
+  return { updated, matched: ids.length, owner };
 }
 
 export function deleteItem(id) {

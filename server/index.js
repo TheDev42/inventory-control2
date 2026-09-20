@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { all, db, DATA_DIR, HttpError, today } from './db.js';
-import { CATALOG, CONNECTOR_SUGGESTIONS, CONNECTOR_TYPES, OUTPUT_TYPES, STATUSES, STATUS_LABEL, PAT_STATUSES, BARCODE_DIGITS, formatOutputs } from './catalog.js';
+import { CATALOG, CONNECTOR_SUGGESTIONS, CONNECTOR_TYPES, OUTPUT_TYPES, STATUSES, STATUS_LABEL, PAT_STATUSES, BARCODE_DIGITS, OWNERS, OWNER_LABEL, formatOutputs } from './catalog.js';
 import * as items from './items.js';
 import * as rentals from './rentals.js';
 import * as containers from './containers.js';
@@ -61,6 +61,8 @@ app.get('/api/meta', (_req, res) => {
     outputTypes: [...OUTPUT_TYPES],
     statuses: STATUSES,
     statusLabels: STATUS_LABEL,
+    owners: OWNERS,
+    ownerLabels: OWNER_LABEL,
     patStatuses: PAT_STATUSES,
     connectors,
     barcodeDigits: BARCODE_DIGITS,
@@ -70,7 +72,7 @@ app.get('/api/meta', (_req, res) => {
 });
 
 app.get('/api/dashboard', (_req, res) => res.json(dashboard()));
-app.get('/api/overview', (_req, res) => res.json(overview()));
+app.get('/api/overview', (req, res) => res.json(overview(req.query.owner)));
 
 /* ---------- scanning ---------- */
 app.post('/api/scan', (req, res) => res.json(handleScan(req.body)));
@@ -83,7 +85,7 @@ app.get('/api/items/export.csv', (req, res) => {
   const total = items.listItems({ ...req.query, limit: 1 }).total;
   let list = rows;
   for (let off = 1000; off < total; off += 1000) list = list.concat(items.listItems({ ...req.query, limit: 1000, offset: off }).items);
-  const cols = ['barcode', 'category', 'type', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'status',
+  const cols = ['barcode', 'category', 'type', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'status', 'owner',
     'rental_name', 'container_name', 'pat_required', 'pat_status', 'last_pat_date', 'next_pat_due'];
   // Guard against spreadsheet formula injection in text cells
   const cell = (v) => {
@@ -97,6 +99,8 @@ app.get('/api/items/export.csv', (req, res) => {
 });
 
 app.post('/api/items/bulk', (req, res) => res.json(items.bulkCreate(req.body?.items)));
+// Set the owner (company / me) of many items at once
+app.post('/api/items/owner', (req, res) => res.json(items.setOwner(req.body?.itemIds, req.body?.owner)));
 app.post('/api/items', (req, res) => res.status(201).json(items.createItem(req.body || {})));
 // null (not a 404) when the barcode is unknown, so the UI can check without a console error
 app.get('/api/items/lookup/:barcode', (req, res) => res.json(items.getItemByBarcode(req.params.barcode) || null));

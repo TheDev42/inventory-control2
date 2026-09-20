@@ -1,5 +1,5 @@
 import {
-  api, html, mount, $, cap, fmtDate, fmtDateTime, timeAgo, toast, notifyChanged, itemTitle, ends, outputsOf, statusBadge, patBadge, statusLabel,
+  api, html, mount, $, cap, fmtDate, fmtDateTime, timeAgo, toast, notifyChanged, itemTitle, ends, outputsOf, statusBadge, patBadge, statusLabel, ownerBadge,
 } from '../util.js';
 import { app } from '../state.js';
 import { state as scanState } from '../scanner.js';
@@ -26,7 +26,7 @@ export default async function itemView({ el, args, isActive }) {
         <div>
           <div class="code">${it.barcode}</div>
           <div style="font-size:1.1rem;font-weight:650;margin-top:2px">${itemTitle(it)}${it.name ? html` <span class="muted">— ${it.name}</span>` : ''}</div>
-          <div style="margin-top:8px" class="actions">${statusBadge(it.status)} ${sold ? '' : patBadge(it.pat_status)} ${ends(it)}</div>
+          <div style="margin-top:8px" class="actions">${statusBadge(it.status)} ${sold ? '' : patBadge(it.pat_status)} ${ownerBadge(it)} ${ends(it)}</div>
           <div class="muted" style="margin-top:8px">
             ${it.rental_id ? html`${it.status === 'lost' ? 'Lost on' : 'Out on'} rental <a href="#/rentals/${it.rental_id}">${it.rental_name}</a>. ` : ''}
             ${it.container_id ? html`Stored in <a href="#/containers/${it.container_id}">${it.container_name}</a> (${it.container_barcode}). ` : ''}
@@ -87,6 +87,7 @@ export default async function itemView({ el, args, isActive }) {
               <dt>Category</dt><dd>${cap(it.category)}</dd>
               <dt>Type</dt><dd>${cap(it.type)}</dd>
               <dt>Description</dt><dd>${it.name || '—'}</dd>
+              <dt>Owner</dt><dd>${app.meta.ownerLabels[it.owner] || it.owner}</dd>
               ${app.meta.connectorTypes.includes(it.type) ? html`
                 <dt>Male end</dt><dd>${it.male_connector || '—'}</dd>
                 <dt>Female end</dt><dd>${it.female_connector || '—'}</dd>` : ''}

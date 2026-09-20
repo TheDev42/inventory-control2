@@ -110,6 +110,10 @@ export const patBadge = (s) => {
   return html`<span class="badge ${m.cls}"><span class="ico" aria-hidden="true">${m.icon}</span>${m.label}</span>`;
 };
 
+// Only items you personally own get a badge (company kit is the norm, so it stays quiet)
+export const ownerBadge = (it) =>
+  it.owner === 'personal' ? html`<span class="badge st-mine" title="Owned by me personally, not by the company"><span class="ico" aria-hidden="true">◆</span>Mine</span>` : '';
+
 export const itemTitle = (it) => `${cap(it.category)} ${it.type}`;
 // Distro outputs arrive as a JSON string: [{ connector, qty }]
 export const outputsOf = (it) => {

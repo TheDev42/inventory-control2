@@ -21,6 +21,18 @@ export const STATUS_LABEL = {
   sold: 'Sold',
 };
 
+// Who owns an item: the company, or you personally
+export const OWNERS = ['company', 'personal'];
+export const OWNER_LABEL = { company: 'Company', personal: 'Me (personal)' };
+
+// "company" / "me" / "mine" / "personal" ... -> 'company' | 'personal'. Blank means company; anything unrecognised gives null.
+export function parseOwner(v) {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (['', 'company', 'work', 'business', 'faderup'].includes(s)) return 'company';
+  if (['personal', 'me', 'mine', 'my', 'own', 'private'].includes(s)) return 'personal';
+  return null;
+}
+
 export const PAT_STATUSES = ['ok', 'due_soon', 'overdue', 'failed', 'never', 'na'];
 
 // Suggestions for the connector pick-lists; anything already in the database is merged in too.
