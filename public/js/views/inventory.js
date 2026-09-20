@@ -1,11 +1,16 @@
-import { api, html, mount, $, $$, qs, debounce, cap, fmtDate, statusBadge, patBadge, ends, plural } from '../util.js';
+import { api, html, mount, $, $$, qs, debounce, cap, fmtDate, statusBadge, patBadge, ends, itemTitle, plural } from '../util.js';
 import { app } from '../state.js';
 
+// The table stacks related details into one cell so it fits without sideways scrolling. Clicking a header sorts by
+// its main field; every other field can still be sorted from the "Sort by" list in the toolbar.
 const COLUMNS = [
+  ['barcode', 'Barcode'], ['category', 'Item'], ['male', 'Ends & length'], ['status', 'Status & location'], ['pat', 'PAT'], ['created', 'Added'],
+];
+const SORT_OPTIONS = [
   ['barcode', 'Barcode'], ['category', 'Category'], ['type', 'Type'], ['name', 'Description'],
-  ['male', 'Male end'], ['female', 'Female end'], ['length', 'Length (m)', 'num'],
+  ['male', 'Male end'], ['female', 'Female end'], ['length', 'Length'],
   ['status', 'Status'], ['rental', 'Rental'], ['container', 'Container'],
-  ['pat', 'PAT'], ['last_pat', 'Last PAT'], ['next_pat', 'PAT due'], ['created', 'Added'],
+  ['pat', 'PAT status'], ['last_pat', 'Last PAT'], ['next_pat', 'PAT due'], ['created', 'Date added'],
 ];
 
 export default async function inventoryView({ el, query, isActive }) {
@@ -45,12 +50,14 @@ export default async function inventoryView({ el, query, isActive }) {
       </div>
     </div>
     <div class="toolbar">
-      <div class="grow"><input type="search" id="inv-q" placeholder="Search everything: barcode, type, connector, rental, container, status…" value="${s.q}" aria-label="Search inventory"></div>
+      <div class="grow"><input type="search" id="inv-q" placeholder="Search barcode, type, connector, rental…" value="${s.q}" aria-label="Search inventory"></div>
       <select id="inv-category" aria-label="Category"><option value="">All categories</option>${Object.keys(meta.catalog).map((c) => opt(c, c, c === s.category))}</select>
       <select id="inv-type" aria-label="Type"></select>
       <select id="inv-status" aria-label="Status"><option value="">Any status</option>${meta.statuses.map((x) => opt(x, meta.statusLabels[x], x === s.status))}</select>
       <select id="inv-pat" aria-label="PAT status"><option value="">Any PAT status</option>
         ${[['ok', 'PAT OK'], ['due_soon', 'Due in 30 days'], ['overdue', 'Overdue'], ['failed', 'Failed'], ['never', 'Never tested'], ['na', 'Not required']].map(([v, l]) => opt(v, l, v === s.pat))}</select>
+      <select id="inv-sort" aria-label="Sort by">${SORT_OPTIONS.map(([v, l]) => opt(v, 'Sort: ' + l, v === s.sort))}</select>
+      <button class="btn secondary small" id="inv-dir" type="button" aria-label="Sort direction"></button>
       <button class="btn ghost small" id="inv-clear" type="button">Clear</button>
     </div>
     <div id="inv-results"></div>`);
@@ -65,6 +72,8 @@ export default async function inventoryView({ el, query, isActive }) {
   async function load() {
     const mine = ++seq;
     syncUrl();
+    $('#inv-sort', el).value = s.sort;
+    $('#inv-dir', el).textContent = s.dir === 'asc' ? '▲ Asc' : '▼ Desc';
     $('#inv-export', el).href = '/api/items/export.csv' + qs({ q: s.q, category: s.category, type: s.type, status: s.status, pat: s.pat, sort: s.sort, dir: s.dir });
     let data;
     try { data = await api.get('/api/items' + qs(params())); } catch (err) {
@@ -79,20 +88,19 @@ export default async function inventoryView({ el, query, isActive }) {
     const to = Math.min(data.total, (s.page + 1) * s.limit);
 
     mount($('#inv-results', el), html`
-      <div class="table-wrap nowrap-cells"><table class="data">
-        <thead><tr>${COLUMNS.map(([key, label, cls]) => html`<th class="sortable ${cls || ''}" data-sort="${key}" aria-sort="${s.sort === key ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'}">${label}<span class="sort-ind">${s.sort === key ? (s.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`)}</tr></thead>
+      <div class="table-wrap cards"><table class="data inventory-table">
+        <thead><tr>${COLUMNS.map(([key, label]) => html`<th class="sortable" data-sort="${key}" aria-sort="${s.sort === key ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'}">${label}<span class="sort-ind">${s.sort === key ? (s.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`)}</tr></thead>
         <tbody>${data.items.length ? data.items.map((it) => html`
           <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : ''}" data-id="${it.id}">
             <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
-            <td>${cap(it.category)}</td><td>${cap(it.type)}</td><td>${it.name || ''}</td>
-            <td>${it.male_connector || ''}</td><td>${it.female_connector || ''}</td>
-            <td class="num">${it.length_m ?? ''}</td>
-            <td>${statusBadge(it.status)}</td>
-            <td>${it.rental_id ? html`<a href="#/rentals/${it.rental_id}">${it.rental_name}</a>` : ''}</td>
-            <td>${it.container_id ? html`<a href="#/containers/${it.container_id}">${it.container_name}</a>` : ''}</td>
-            <td>${patBadge(it.pat_status)}</td>
-            <td class="nowrap">${fmtDate(it.last_pat_date)}</td>
-            <td class="nowrap">${it.pat_status === 'na' ? '' : fmtDate(it.next_pat_due)}</td>
+            <td><div class="cell-main">${itemTitle(it)}</div>${it.name ? html`<div class="cell-sub">${it.name}</div>` : ''}</td>
+            <td>${ends(it)}${it.length_m != null ? html`<div class="cell-sub">${it.length_m} m</div>` : ''}</td>
+            <td>${statusBadge(it.status)}
+              ${it.rental_id ? html`<div class="cell-sub">Rental: <a href="#/rentals/${it.rental_id}">${it.rental_name}</a></div>` : ''}
+              ${it.container_id ? html`<div class="cell-sub">Container: <a href="#/containers/${it.container_id}">${it.container_name}</a></div>` : ''}</td>
+            <td>${patBadge(it.pat_status)}
+              ${it.pat_status !== 'na' && it.next_pat_due ? html`<div class="cell-sub">Due ${fmtDate(it.next_pat_due)}</div>` : ''}
+              ${it.pat_status !== 'na' && it.last_pat_date ? html`<div class="cell-sub">Last ${fmtDate(it.last_pat_date)}</div>` : ''}</td>
             <td class="nowrap">${fmtDate(it.created_at)}</td>
           </tr>`) : html`<tr><td colspan="${COLUMNS.length}"><div class="empty">${s.q || s.category || s.type || s.status || s.pat ? 'No items match those filters.' : 'Nothing here yet — add items one at a time or in bulk.'}</div></td></tr>`}
         </tbody></table></div>
@@ -114,6 +122,8 @@ export default async function inventoryView({ el, query, isActive }) {
   $('#inv-type', el).addEventListener('change', (e) => { s.type = e.target.value; reload(); });
   $('#inv-status', el).addEventListener('change', (e) => { s.status = e.target.value; reload(); });
   $('#inv-pat', el).addEventListener('change', (e) => { s.pat = e.target.value; reload(); });
+  $('#inv-sort', el).addEventListener('change', (e) => { s.sort = e.target.value; reload(); });
+  $('#inv-dir', el).addEventListener('click', () => { s.dir = s.dir === 'asc' ? 'desc' : 'asc'; reload(); });
   $('#inv-clear', el).addEventListener('click', () => {
     Object.assign(s, { q: '', category: '', type: '', status: '', pat: '', sort: 'barcode', dir: 'asc' });
     $('#inv-q', el).value = '';

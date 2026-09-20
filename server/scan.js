@@ -58,8 +58,11 @@ function scanOut(item, container, { rentalId }) {
 
 /* ---------- return (works on any page, no rental needed) ---------- */
 
+const soldBlock = (item) => result('error', `${item.barcode} is SOLD — sold items cannot be scanned (undo the sale from its item page if this was a mistake)`, { item });
+
 function scanReturn(item, container) {
   if (item) {
+    if (item.status === 'sold') return soldBlock(item);
     if (item.status === 'on_rental') {
       const back = returnItem(item);
       return result('return', `RETURNED: ${item.barcode} (${describeItem(item)}) from ${item.rental_name}`, { item: back });
@@ -86,6 +89,7 @@ function scanStore(item, scannedContainer, { containerId }) {
     // Scanning a container while in Store mode simply switches the target container.
     return result('lookup', `Now storing into ${scannedContainer.name}`, { container: scannedContainer, setContainerId: scannedContainer.id });
   }
+  if (item.status === 'sold') return soldBlock(item);
   if (!containerId) return result('error', 'No container selected — pick one in the scan bar or scan its barcode first');
   const container = get('SELECT * FROM containers WHERE id = ?', containerId);
   if (!container) return result('error', 'Container not found');
@@ -115,6 +119,7 @@ function scanStore(item, scannedContainer, { containerId }) {
 
 function scanPat(item, container, { patResult, tester }) {
   if (container) return result('error', 'Containers are not PAT tested — scan an item');
+  if (item.status === 'sold') return soldBlock(item);
   const res = patResult === 'fail' ? 'fail' : 'pass';
   const fresh = recordPat(item.id, { result: res, tester });
   return result(res === 'pass' ? 'pat_pass' : 'pat_fail',

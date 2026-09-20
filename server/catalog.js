@@ -1,5 +1,5 @@
 export const CATALOG = {
-  POWER: ['cable', 'adapter', 'splitter'],
+  POWER: ['cable', 'adapter', 'splitter', 'distro'],
   LIGHTING: ['cable', 'light', 'unit'],
   SOUND: ['cable', 'audio'],
 };
@@ -7,7 +7,10 @@ export const CATALOG = {
 // Types that have a male end and a female end recorded
 export const CONNECTOR_TYPES = new Set(['cable', 'adapter', 'splitter']);
 
-export const STATUSES = ['in_stock', 'on_rental', 'lost', 'disassembled', 'repair'];
+// Distros have one input connector and a list of output connectors (e.g. 6 x 16A Cee, 2 x 13A) instead of a male/female end
+export const OUTPUT_TYPES = new Set(['distro']);
+
+export const STATUSES = ['in_stock', 'on_rental', 'lost', 'disassembled', 'repair', 'sold'];
 
 export const STATUS_LABEL = {
   in_stock: 'In stock',
@@ -15,6 +18,7 @@ export const STATUS_LABEL = {
   lost: 'Lost',
   disassembled: 'Disassembled',
   repair: 'Repair',
+  sold: 'Sold',
 };
 
 export const PAT_STATUSES = ['ok', 'due_soon', 'overdue', 'failed', 'never', 'na'];
@@ -65,5 +69,19 @@ export function normalizeBarcode(value) {
   if (BARCODE_DIGITS && /^\d+$/.test(s) && s.length < BARCODE_DIGITS) return s.padStart(BARCODE_DIGITS, '0');
   return s;
 }
+
+/* ---------- distro outputs: [{ connector, qty }] stored as JSON in items.outputs ---------- */
+
+// Tolerant reader for display/export: the stored JSON, or an already-parsed array. Never throws.
+export function parseOutputs(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const v = JSON.parse(value);
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+
+export const formatOutputs = (list, sep = ', ') => parseOutputs(list).map((o) => `${o.qty}× ${o.connector}`).join(sep);
 
 export const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '');

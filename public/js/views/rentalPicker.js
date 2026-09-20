@@ -57,18 +57,18 @@ export function createPicker({ rentalId, onClose }) {
     const to = Math.min(total, (s.page + 1) * PAGE_SIZE);
     const filtered = s.q || s.category || s.type;
     mount(list, html`
-      <div class="table-wrap pk-table"><table class="data">
+      <div class="table-wrap cards pk-table"><table class="data">
         <thead><tr>
           <th class="pk-col"><input type="checkbox" id="pk-all" aria-label="Select all on this page"></th>
-          <th>Barcode</th><th>Type</th><th>Description</th><th>Ends</th><th class="num">Length (m)</th><th>Container</th><th>PAT</th>
+          <th>Barcode</th><th>Type</th><th>Description</th><th>Ends</th><th class="num pk-hide-sm">Length (m)</th><th class="pk-hide-sm">Container</th><th>PAT</th>
         </tr></thead>
         <tbody>${rows.length ? rows.map((it) => html`
           <tr class="${selectable(it) ? 'clickable' : 'pk-blocked'} ${selected.has(it.id) ? 'picked' : ''}" data-id="${it.id}">
             <td class="pk-col"><input type="checkbox" aria-label="Select ${it.barcode}" ${selected.has(it.id) ? 'checked' : ''} ${selectable(it) ? '' : 'disabled'}></td>
             <td><span class="barcode">${it.barcode}</span></td>
             <td>${itemTitle(it)}</td><td>${it.name || ''}</td><td>${ends(it)}</td>
-            <td class="num">${it.length_m ?? ''}</td>
-            <td>${it.container_name || ''}</td>
+            <td class="num pk-hide-sm">${it.length_m ?? ''}</td>
+            <td class="pk-hide-sm">${it.container_name || ''}</td>
             <td>${patBadge(it.pat_status)}${selectable(it) ? '' : html` <span class="muted small-text">can't go out</span>`}</td>
           </tr>`)
           : html`<tr><td colspan="8"><div class="empty">${filtered ? 'No in-stock items match those filters.' : 'There are no in-stock items to add.'}</div></td></tr>`}

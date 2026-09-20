@@ -85,8 +85,26 @@ function initTheme() {
   });
 }
 
+// Phone layout: the sidebar collapses to a top bar and this button slides the menu in and out.
+function initMenu() {
+  const sidebar = $('#sidebar');
+  const btn = $('#menu-btn');
+  const backdrop = $('#nav-backdrop');
+  const setOpen = (open) => {
+    sidebar.classList.toggle('open', open);
+    btn.setAttribute('aria-expanded', String(open));
+    backdrop.hidden = !open;
+  };
+  btn.addEventListener('click', () => setOpen(!sidebar.classList.contains('open')));
+  backdrop.addEventListener('click', () => setOpen(false));
+  $('#nav').addEventListener('click', (e) => { if (e.target.closest('a')) setOpen(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+  window.addEventListener('hashchange', () => setOpen(false));
+}
+
 async function boot() {
   initTheme();
+  initMenu();
   mount($('#nav'), html`${NAV.map(([title, links]) => html`<div class="nav-section"><div class="nav-section-title">${title}</div>
     ${links.map(([id, label, path]) => html`<a href="#${path}" data-nav="${id}">${icon(id)}<span class="label">${label}</span></a>`)}</div>`)}`);
   try {

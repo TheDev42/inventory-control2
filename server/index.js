@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { all, db, DATA_DIR, HttpError, today } from './db.js';
-import { CATALOG, CONNECTOR_SUGGESTIONS, CONNECTOR_TYPES, STATUSES, STATUS_LABEL, PAT_STATUSES, BARCODE_DIGITS } from './catalog.js';
+import { CATALOG, CONNECTOR_SUGGESTIONS, CONNECTOR_TYPES, OUTPUT_TYPES, STATUSES, STATUS_LABEL, PAT_STATUSES, BARCODE_DIGITS, formatOutputs } from './catalog.js';
 import * as items from './items.js';
 import * as rentals from './rentals.js';
 import * as containers from './containers.js';
@@ -47,12 +47,17 @@ app.get('/api/meta', (_req, res) => {
   const seen = new Set(CONNECTOR_SUGGESTIONS.map((c) => c.toLowerCase()));
   const connectors = [...CONNECTOR_SUGGESTIONS];
   for (const r of all(`SELECT male_connector AS c FROM items WHERE male_connector IS NOT NULL
-                       UNION SELECT female_connector FROM items WHERE female_connector IS NOT NULL ORDER BY 1`)) {
+                       UNION SELECT female_connector FROM items WHERE female_connector IS NOT NULL
+                       UNION SELECT input_connector FROM items WHERE input_connector IS NOT NULL
+                       UNION SELECT json_extract(o.value, '$.connector') FROM items, json_each(items.outputs) o
+                         WHERE items.outputs IS NOT NULL AND json_valid(items.outputs)
+                       ORDER BY 1`)) {
     if (!seen.has(r.c.toLowerCase())) { seen.add(r.c.toLowerCase()); connectors.push(r.c); }
   }
   res.json({
     catalog: CATALOG,
     connectorTypes: [...CONNECTOR_TYPES],
+    outputTypes: [...OUTPUT_TYPES],
     statuses: STATUSES,
     statusLabels: STATUS_LABEL,
     patStatuses: PAT_STATUSES,
@@ -76,7 +81,7 @@ app.get('/api/items/export.csv', (req, res) => {
   const total = items.listItems({ ...req.query, limit: 1 }).total;
   let list = rows;
   for (let off = 1000; off < total; off += 1000) list = list.concat(items.listItems({ ...req.query, limit: 1000, offset: off }).items);
-  const cols = ['barcode', 'category', 'type', 'name', 'male_connector', 'female_connector', 'length_m', 'status',
+  const cols = ['barcode', 'category', 'type', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'status',
     'rental_name', 'container_name', 'pat_required', 'pat_status', 'last_pat_date', 'next_pat_due'];
   // Guard against spreadsheet formula injection in text cells
   const cell = (v) => {
@@ -84,7 +89,7 @@ app.get('/api/items/export.csv', (req, res) => {
     if (/^[=+\-@\t\r]/.test(s) && Number.isNaN(Number(s))) s = "'" + s;
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const csv = [cols.join(','), ...list.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\r\n');
+  const csv = [cols.join(','), ...list.map((r) => cols.map((c) => cell(c === 'outputs' ? formatOutputs(r.outputs, '; ') : r[c])).join(','))].join('\r\n');
   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="inventory-${today()}.csv"` });
   res.send('﻿' + csv);
 });
@@ -103,6 +108,7 @@ app.post('/api/items/:id/unstore', (req, res) => res.json(containers.unstoreItem
 app.post('/api/items/:id/return', (req, res) => {
   const item = items.getItem(id(req));
   if (!item) throw new HttpError(404, 'Item not found');
+  if (item.status === 'sold') throw new HttpError(409, 'Item is SOLD — undo the sale from its item page first');
   res.json(items.returnItem(item));
 });
 app.delete('/api/comments/:id', (req, res) => { items.deleteComment(id(req)); res.json({ ok: true }); });

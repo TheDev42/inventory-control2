@@ -1,7 +1,7 @@
 import {
   all, get, run, tx, today, addDays, addMonths, nowIso, logEvent, HttpError,
 } from './db.js';
-import { CATALOG, CONNECTOR_TYPES, STATUS_LABEL, cap, normalizeBarcode } from './catalog.js';
+import { CATALOG, CONNECTOR_TYPES, OUTPUT_TYPES, STATUS_LABEL, cap, normalizeBarcode, parseOutputs, formatOutputs } from './catalog.js';
 
 /* ---------- SQL fragments ---------- */
 
@@ -10,6 +10,7 @@ export function patCase() {
   const t = today();
   const soon = addDays(t, 30);
   return `CASE
+    WHEN i.status = 'sold' THEN 'na'
     WHEN i.pat_required = 0 THEN 'na'
     WHEN i.last_pat_date IS NULL THEN 'never'
     WHEN i.last_pat_result = 'fail' THEN 'failed'
@@ -38,6 +39,10 @@ export function describeItem(item) {
   if (item.name) parts.push(item.name);
   if (item.male_connector || item.female_connector) {
     parts.push(`${item.male_connector || '?'} → ${item.female_connector || '?'}`);
+  }
+  if (item.input_connector || item.outputs) {
+    const outs = formatOutputs(item.outputs);
+    parts.push(`${item.input_connector || '?'} in${outs ? ` → ${outs} out` : ''}`);
   }
   return parts.join(' · ');
 }
@@ -75,6 +80,7 @@ export function listItems(query = {}) {
   }
   if (query.male) { where.push('i.male_connector = ? COLLATE NOCASE'); args.push(query.male); }
   if (query.female) { where.push('i.female_connector = ? COLLATE NOCASE'); args.push(query.female); }
+  if (query.pat) where.push("i.status != 'sold'"); // sold items are out of PAT altogether
   if (query.pat === 'required') where.push('i.pat_required = 1');
   else if (query.pat) { where.push(`${patCase()} = ?`); args.push(query.pat); }
   if (query.unassigned === '1') where.push('i.container_id IS NULL');
@@ -84,7 +90,7 @@ export function listItems(query = {}) {
   for (const term of terms) {
     const like = `%${escapeLike(term)}%`;
     const cols = [
-      'i.barcode', 'i.category', 'i.type', 'i.name', 'i.male_connector', 'i.female_connector',
+      'i.barcode', 'i.category', 'i.type', 'i.name', 'i.male_connector', 'i.female_connector', 'i.input_connector', 'i.outputs',
       "replace(i.status, '_', ' ')", 'r.name', 'c.name', 'c.barcode', 'CAST(i.length_m AS TEXT)',
       'i.last_pat_date', 'i.next_pat_due', `replace(${pat}, '_', ' ')`,
     ];
@@ -128,6 +134,36 @@ export function barcodeTaken(barcode, exceptItemId = null) {
   return null;
 }
 
+// Accepts [{connector, qty}], the stored JSON, or CSV-style text such as "6x 16A Cee (blue); 2x 13A (BS1363)".
+export function cleanOutputs(value) {
+  let list = value;
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (s.startsWith('[')) list = parseOutputs(s);
+    else {
+      list = s.split(/[;\n]+/).map((part) => part.trim()).filter(Boolean).map((part) => {
+        const m = part.match(/^(\d+)\s*[x×]\s*(.+)$/i);
+        return m ? { qty: Number(m[1]), connector: m[2].trim() } : { qty: 1, connector: part };
+      });
+    }
+  }
+  if (value === undefined || value === null || value === '') return [];
+  if (!Array.isArray(list)) throw new HttpError(400, 'Outputs must be a list of connectors');
+  const merged = new Map();
+  for (const o of list) {
+    const connector = str(o?.connector);
+    if (!connector) continue; // blank rows from the form are ignored
+    if (connector.length > 60) throw new HttpError(400, `Output connector "${connector.slice(0, 20)}…" is too long`);
+    const qty = o.qty === undefined || o.qty === '' ? 1 : Number(o.qty);
+    if (!Number.isInteger(qty) || qty < 1 || qty > 99) throw new HttpError(400, `Invalid quantity "${o.qty}" for output ${connector} (use 1–99)`);
+    const key = connector.toLowerCase();
+    const cur = merged.get(key);
+    if (cur) cur.qty += qty; else merged.set(key, { connector, qty });
+  }
+  if (merged.size > 20) throw new HttpError(400, 'Too many different output connectors (max 20)');
+  return [...merged.values()].map((o) => ({ connector: o.connector, qty: Math.min(o.qty, 99) }));
+}
+
 export function cleanItem(d) {
   const barcode = str(normalizeBarcode(d.barcode));
   if (!barcode) throw new HttpError(400, 'Barcode is required');
@@ -138,6 +174,8 @@ export function cleanItem(d) {
     throw new HttpError(400, `Invalid type "${d.type}" for ${category} (use ${CATALOG[category].join(', ')})`);
   }
   const hasConnectors = CONNECTOR_TYPES.has(type);
+  const isDistro = OUTPUT_TYPES.has(type);
+  const outputs = isDistro ? cleanOutputs(d.outputs) : [];
   const length = str(d.length_m);
   if (length !== null && !Number.isFinite(Number(length))) throw new HttpError(400, `Invalid length "${d.length_m}"`);
   let patRequired;
@@ -156,6 +194,8 @@ export function cleanItem(d) {
     name: str(d.name),
     male_connector: hasConnectors ? str(d.male_connector) : null,
     female_connector: hasConnectors ? str(d.female_connector) : null,
+    input_connector: isDistro ? str(d.input_connector) : null,
+    outputs: outputs.length ? JSON.stringify(outputs) : null,
     length_m: length === null ? null : Number(length),
     pat_required: patRequired,
     pat_interval_months: interval > 0 ? interval : 12,
@@ -168,10 +208,10 @@ export function cleanItem(d) {
 function insertItem(c) {
   const ts = nowIso();
   const res = run(
-    `INSERT INTO items (barcode, category, type, name, male_connector, female_connector, length_m,
+    `INSERT INTO items (barcode, category, type, name, male_connector, female_connector, input_connector, outputs, length_m,
        pat_required, pat_interval_months, container_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.length_m,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
     c.pat_required, c.pat_interval_months, c.container_id, ts, ts
   );
   return getItem(Number(res.lastInsertRowid));
@@ -223,10 +263,11 @@ export function updateItem(id, data) {
   const c = cleanItem({ ...existing, ...data });
   const clash = barcodeTaken(c.barcode, id);
   if (clash) throw new HttpError(409, `Barcode ${c.barcode} is already used by a ${clash}`);
+  if (existing.status === 'sold' && c.container_id) throw new HttpError(409, 'Sold items cannot be stored in a container');
   run(
-    `UPDATE items SET barcode=?, category=?, type=?, name=?, male_connector=?, female_connector=?, length_m=?,
+    `UPDATE items SET barcode=?, category=?, type=?, name=?, male_connector=?, female_connector=?, input_connector=?, outputs=?, length_m=?,
        pat_required=?, pat_interval_months=?, container_id=?, updated_at=? WHERE id=?`,
-    c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.length_m,
+    c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
     c.pat_required, c.pat_interval_months, c.container_id, nowIso(), id
   );
   const item = getItem(id);
@@ -267,12 +308,15 @@ export function returnItem(item, detail, note) {
   return getItem(item.id);
 }
 
-// Marker: lost / disassembled / repair, or in_stock to clear one. `note` becomes a marker comment.
+// Marker: lost / disassembled / repair / sold, or in_stock to clear one. `note` becomes a marker comment.
+// Sold items stay on the register but are inert: no scanning, rentals, containers or PAT. Only "in_stock" (undo the sale) moves them.
 export function setMarker(id, status, note) {
   const item = getItem(id);
   if (!item) throw new HttpError(404, 'Item not found');
-  if (!['in_stock', 'lost', 'disassembled', 'repair'].includes(status)) throw new HttpError(400, 'Invalid status');
+  if (!['in_stock', 'lost', 'disassembled', 'repair', 'sold'].includes(status)) throw new HttpError(400, 'Invalid status');
   if (status === item.status) throw new HttpError(409, `Already marked ${STATUS_LABEL[status]}`);
+  if (item.status === 'sold' && status !== 'in_stock') throw new HttpError(409, 'Item is SOLD — undo the sale first');
+  if (status === 'sold' && item.status === 'lost') throw new HttpError(409, 'Item is marked LOST — restore it to stock before marking it sold');
 
   if (status === 'in_stock') {
     if (item.status === 'on_rental') throw new HttpError(409, 'Item is on a rental — return it instead');
@@ -317,6 +361,7 @@ export function setContainer(item, containerId) {
 export function recordPat(itemId, { result, tester, notes, date } = {}) {
   const item = getItem(itemId);
   if (!item) throw new HttpError(404, 'Item not found');
+  if (item.status === 'sold') throw new HttpError(409, 'Item is SOLD — it cannot be PAT tested');
   const res = result === 'fail' ? 'fail' : 'pass';
   const tested = str(date) || today();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tested)) throw new HttpError(400, 'Invalid date');

@@ -69,7 +69,7 @@ export default async function rentalView({ el, args, isActive }) {
         <div class="form-actions"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" data-act="edit">Cancel</button></div>
       </form>` : ''}
 
-      ${active ? html`<div class="notice">
+      ${active ? html`<div class="notice scan-notice">
         <div class="actions" style="justify-content:space-between">
           <span class="live-note"><span class="live-dot"></span>
             <span>Scanner is live on this page. ${scanningHere && scanState.mode === 'out' ? html`<strong>Scanning items OUT onto this rental.</strong> Unknown or unavailable items will beep and tell you why.`
@@ -93,7 +93,7 @@ export default async function rentalView({ el, args, isActive }) {
       <div class="tabs">${[['all', 'All'], ['out', 'Out'], ['returned', 'Returned'], ['lost', 'Lost']].map(([k, l]) =>
         html`<button class="tab" data-filter="${k}" aria-pressed="${String(filter === k)}">${l}<span class="count">${counts[k]}</span></button>`)}</div>
 
-      ${shown.length ? html`<div class="table-wrap"><table class="data">
+      ${shown.length ? html`<div class="table-wrap cards rental-lines"><table class="data">
         <thead><tr><th>Barcode</th><th>Type</th><th>Description</th><th>Ends</th><th>PAT</th><th>Status</th><th>Added</th><th></th></tr></thead>
         <tbody>${shown.map((it) => {
           const st = lineState(it);

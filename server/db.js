@@ -110,6 +110,12 @@ CREATE INDEX IF NOT EXISTS idx_events_item ON events(item_id);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 `);
 
+// Databases created before distros existed are upgraded in place (columns are only ever added).
+const itemCols = new Set(db.prepare('PRAGMA table_info(items)').all().map((c) => c.name));
+for (const [col, type] of [['input_connector', 'TEXT'], ['outputs', 'TEXT']]) {
+  if (!itemCols.has(col)) db.exec(`ALTER TABLE items ADD COLUMN ${col} ${type}`);
+}
+
 const norm = (params) =>
   params.map((v) => (v === undefined ? null : typeof v === 'boolean' ? (v ? 1 : 0) : v));
 

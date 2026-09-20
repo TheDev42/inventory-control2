@@ -10,6 +10,7 @@ export function dashboard() {
        SUM(status = 'lost') AS lost,
        SUM(status = 'disassembled') AS disassembled,
        SUM(status = 'repair') AS repair,
+       SUM(status = 'sold') AS sold,
        SUM(container_id IS NOT NULL) AS in_containers
      FROM items`
   );
@@ -19,11 +20,11 @@ export function dashboard() {
   const byType = all(
     `SELECT category, type, COUNT(*) AS total,
        SUM(status = 'in_stock') AS in_stock, SUM(status = 'on_rental') AS on_rental,
-       SUM(status = 'repair') AS repair, SUM(status = 'lost') AS lost, SUM(status = 'disassembled') AS disassembled
+       SUM(status = 'repair') AS repair, SUM(status = 'lost') AS lost, SUM(status = 'disassembled') AS disassembled, SUM(status = 'sold') AS sold
      FROM items GROUP BY category, type ORDER BY category, type`
   );
 
-  const patRows = all(`SELECT ${patCase()} AS s, COUNT(*) AS n FROM items i GROUP BY s`);
+  const patRows = all(`SELECT ${patCase()} AS s, COUNT(*) AS n FROM items i WHERE i.status != 'sold' GROUP BY s`);
   const pat = { ok: 0, due_soon: 0, overdue: 0, failed: 0, never: 0, na: 0 };
   for (const r of patRows) pat[r.s] = r.n;
 

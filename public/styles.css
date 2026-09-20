@@ -67,8 +67,10 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 .app { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
 .sidebar {
   position: sticky; top: 0; align-self: start; height: 100vh; padding: 20px 0 12px;
-  display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); overflow-y: auto;
+  display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line);
 }
+.sidebar-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
+.menu-btn, .nav-backdrop { display: none; }
 .sidebar-header { padding: 0 20px 20px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1rem; }
 .brand-mark {
@@ -93,18 +95,29 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
 
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; }
-  .sidebar { position: static; height: auto; flex-direction: row; align-items: center; padding: 8px 12px; overflow-x: auto; gap: 8px; border-right: 0; border-bottom: 1px solid var(--line); }
-  .sidebar-header { padding: 0; margin: 0; border: 0; }
-  .brand span:last-child { display: none; }
-  #nav { flex-direction: row; }
-  .nav-section { display: flex; margin: 0; padding: 0; }
-  .nav-section-title { display: none; }
-  #nav a { padding: 8px; margin: 0; }
-  #nav a span.label { display: none; }
-  .sidebar-foot { margin: 0 0 0 auto; padding: 0; border: 0; }
+  .sidebar { position: sticky; top: 0; height: auto; padding: 0; z-index: 30; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar-header { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 16px; margin: 0; border: 0; }
+  .menu-btn {
+    display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+  }
+  .menu-btn .i-close, .menu-btn[aria-expanded="true"] .i-open { display: none; }
+  .menu-btn[aria-expanded="true"] .i-close { display: block; }
+  /* the menu slides in from the left, under the top bar */
+  .sidebar-panel {
+    position: fixed; top: 57px; bottom: 0; left: 0; width: min(300px, 85vw); padding: 16px 0 12px; flex: none;
+    background: var(--surface); border-right: 1px solid var(--line); box-shadow: 8px 0 24px rgba(0, 0, 0, .35);
+    transform: translateX(-100%); visibility: hidden; transition: transform .2s ease, visibility 0s linear .2s;
+  }
+  .sidebar.open .sidebar-panel { transform: none; visibility: visible; transition: transform .2s ease, visibility 0s; }
+  .nav-backdrop:not([hidden]) { display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .55); z-index: 29; }
+  #nav a { padding: 12px; }
+  /* nobody scans with a phone: no scan bar or scanner hints (a paired reader would still work) */
+  .scanbar, .scan-notice { display: none; }
+  .pk-hide-sm { display: none; }
   .view { padding: 16px 16px 60px; }
-  .scanbar { position: static; }
 }
+@media (max-width: 860px) and (prefers-reduced-motion: reduce) { .sidebar-panel { transition: none; } }
 
 /* ---------- scan bar ---------- */
 .scanbar {
@@ -252,7 +265,8 @@ table.data th.sortable { cursor: pointer; user-select: none; }
 table.data th.sortable:hover { color: var(--ink); }
 table.data th .sort-ind { display: inline-block; width: 1em; color: var(--accent); }
 table.data td.num, table.data th.num { text-align: right; }
-.nowrap-cells td { white-space: nowrap; }
+.cell-main { font-weight: 550; }
+.cell-sub { color: var(--ink-2); font-size: .78rem; margin-top: 2px; }
 .barcode { font-family: var(--mono); font-weight: 650; white-space: nowrap; color: var(--accent); }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-top: 12px; flex-wrap: wrap; color: var(--ink-2); }
 tr.is-out td { background: color-mix(in srgb, var(--s2) 6%, transparent); }
@@ -335,6 +349,67 @@ table.data tbody tr.pk-blocked td { opacity: .55; }
 .toast.error { background: var(--critical); color: #fff; }
 .toast.ok { background: var(--good-ink); color: #fff; }
 .toast.out { opacity: 0; transform: translateY(6px); }
+
+/* ---------- phones: wide tables become stacked cards ---------- */
+@media (max-width: 860px) {
+  .cards table, .cards tbody { display: block; }
+  .cards thead { display: none; } /* sorting on the inventory list moves to the toolbar's "Sort" list */
+  .cards tbody tr { display: grid; align-items: center; gap: 6px 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .cards tbody tr:last-child { border-bottom: 0; }
+  .cards tbody tr:hover { background: var(--surface-2); }
+  .cards tbody tr.is-out { background: color-mix(in srgb, var(--s2) 6%, transparent); }
+  .cards tbody tr.is-lost { background: color-mix(in srgb, var(--critical) 7%, transparent); }
+  .cards tbody tr.picked { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .cards td { display: block; min-width: 0; background: transparent !important; white-space: normal; }
+  .cards table.data td { padding: 0; border: 0; } /* beats the desktop cell padding/border */
+  .cards td:empty { display: none; }
+
+  /* inventory: barcode + date on top, then item, ends, status | PAT */
+  .inventory-table tbody tr[data-id] { grid-template-columns: 1fr auto; grid-template-areas: "bc ad" "it it" "en en" "st pa"; }
+  .inventory-table td:nth-child(1) { grid-area: bc; }
+  .inventory-table td:nth-child(2) { grid-area: it; }
+  .inventory-table td:nth-child(3) { grid-area: en; }
+  .inventory-table td:nth-child(4) { grid-area: st; }
+  .inventory-table td:nth-child(5) { grid-area: pa; justify-self: end; text-align: right; }
+  .inventory-table td:nth-child(6) { grid-area: ad; justify-self: end; color: var(--ink-2); font-size: .8rem; }
+
+  /* rental lines: barcode + status, item, ends, PAT + date, actions */
+  .rental-lines tbody tr { grid-template-columns: auto 1fr; grid-template-areas: "bc st" "ty de" "en en" "pa ad" "ac ac"; }
+  .rental-lines td:nth-child(1) { grid-area: bc; }
+  .rental-lines td:nth-child(2) { grid-area: ty; font-weight: 550; }
+  .rental-lines td:nth-child(3) { grid-area: de; color: var(--ink-2); }
+  .rental-lines td:nth-child(4) { grid-area: en; }
+  .rental-lines td:nth-child(5) { grid-area: pa; }
+  .rental-lines td:nth-child(6) { grid-area: st; justify-self: end; text-align: right; }
+  .rental-lines td:nth-child(7) { grid-area: ad; justify-self: end; }
+  .rental-lines td:nth-child(8) { grid-area: ac; display: flex; gap: 8px; text-align: left; }
+  .rental-lines td:nth-child(8):empty { display: none; }
+
+  /* picker: tick box, barcode, type, PAT; description and ends underneath */
+  .pk-table { max-height: none; overflow: visible; } /* flows with the page; the add bar stays pinned */
+  .pk-table tbody tr[data-id] { grid-template-columns: 24px auto 1fr auto; grid-template-areas: "cb bc bc pa" ". ty de de" ". en en en"; }
+  .pk-table td:nth-child(1) { grid-area: cb; }
+  .pk-table td:nth-child(2) { grid-area: bc; }
+  .pk-table td:nth-child(3) { grid-area: ty; font-weight: 550; }
+  .pk-table td:nth-child(4) { grid-area: de; color: var(--ink-2); }
+  .pk-table td:nth-child(5) { grid-area: en; }
+  .pk-table td:nth-child(8) { grid-area: pa; justify-self: end; }
+  .pk-table td.pk-hide-sm { display: none; }
+  .pk-table thead { display: block; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .pk-table thead tr { display: block; padding: 10px 14px; }
+  .pk-table thead th { display: none; }
+  .pk-table thead th.pk-col { display: flex; align-items: center; gap: 10px; width: auto; padding: 0; border: 0; position: static; background: transparent; }
+  .pk-table thead th.pk-col::after { content: "Select all on this page"; font-size: .8rem; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--ink-2); }
+  .picker-bar { margin: 12px -16px -16px; padding: 12px 16px; }
+  .picker { padding: 16px; }
+
+  /* tighter stat tiles and cards */
+  .kpis { gap: 10px; margin-bottom: 16px; }
+  .kpi { padding: 12px 14px; }
+  .kpi .value { font-size: 1.5rem; }
+  .card { padding: 16px; }
+  .page-head { margin-bottom: 16px; }
+}
 
 @media print {
   .sidebar, .scanbar, .toasts, .actions, .toolbar { display: none !important; }

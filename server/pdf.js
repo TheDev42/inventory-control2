@@ -2,7 +2,7 @@ import PDFDocument from 'pdfkit';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cap } from './catalog.js';
+import { cap, formatOutputs } from './catalog.js';
 
 // Company logo shown on the PDF header. It sits directly on the dark blue band, so use a white logo with a
 // transparent background. Override with LOGO_PATH.
@@ -34,6 +34,7 @@ export function sortForSheet(items) {
   return [...items].sort((a, b) =>
     cmpStr(a.category, b.category) || cmpStr(a.type, b.type) ||
     cmpStr(a.male_connector, b.male_connector) || cmpStr(a.female_connector, b.female_connector) ||
+    cmpStr(a.input_connector, b.input_connector) || cmpStr(a.outputs, b.outputs) ||
     cmpNum(a.length_m, b.length_m) || cmpStr(a.name, b.name) || cmpStr(a.barcode, b.barcode));
 }
 
@@ -42,13 +43,14 @@ export function sortForSheet(items) {
 export function groupForClient(items) {
   const groups = new Map();
   for (const it of items) {
-    const key = [it.category, it.type, it.name, it.male_connector, it.female_connector, it.length_m]
+    const key = [it.category, it.type, it.name, it.male_connector, it.female_connector, it.input_connector, it.outputs, it.length_m]
       .map((v) => String(v ?? '').trim().toLowerCase()).join('|');
     let g = groups.get(key);
     if (!g) {
       g = {
         category: it.category, type: it.type, name: it.name,
-        male_connector: it.male_connector, female_connector: it.female_connector, length_m: it.length_m, qty: 0,
+        male_connector: it.male_connector, female_connector: it.female_connector,
+        input_connector: it.input_connector, outputs: it.outputs, length_m: it.length_m, qty: 0,
       };
       groups.set(key, g);
     }
@@ -110,6 +112,12 @@ const CLIENT = {
 
 const lenText = (v) => (v != null ? `${v} m` : '');
 
+// A distro has no male/female end: its input and outputs are printed together, wrapped across the connector columns.
+const distroText = (it) => {
+  const outs = formatOutputs(it.outputs);
+  return [it.input_connector ? `In: ${it.input_connector}` : '', outs ? `Out: ${outs}` : ''].filter(Boolean).join('\n');
+};
+
 // Turns rental rows into printable lines: { category, weight, cells, lost?, returned_at?, box? }
 function internalLines(items) {
   return sortForSheet(items).map((it, i) => ({
@@ -118,6 +126,7 @@ function internalLines(items) {
     weight: 1,
     lost: it.outcome === 'lost' || (it.outcome === null && it.status === 'lost'),
     returned_at: it.returned_at,
+    span: distroText(it),
     cells: {
       n: String(i + 1),
       barcode: it.barcode,
@@ -136,6 +145,7 @@ function clientLines(items) {
     category: g.category,
     type: g.type,
     weight: g.qty,
+    span: distroText(g),
     cells: {
       qty: String(g.qty),
       type: cap(g.type),
@@ -274,28 +284,39 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal' 
         lastCat = l.category;
         zebra = false;
       }
-      ensure(ROW_H);
-      if (zebra) doc.rect(left, y, tableW, ROW_H).fill(ZEBRA);
+      // Distros print "In: … / Out: …" wrapped across the male + female (+ length, when empty) columns, so their row grows to fit.
+      const spanKeys = l.span ? ['male', 'female', ...(l.cells.len ? [] : ['len'])] : [];
+      const spanW = columns.filter((c) => spanKeys.includes(c.key)).reduce((s, c) => s + c.w, 0) - 8;
+      let rh = ROW_H;
+      if (l.span) {
+        doc.font('Helvetica').fontSize(fs);
+        rh = Math.max(ROW_H, Math.ceil(doc.heightOfString(l.span, { width: spanW, lineGap: 1 })) + 8);
+      }
+      const ty = rh === ROW_H ? textY(fs) : 4; // tall rows are top-aligned so every cell lines up with the first text line
+      ensure(rh);
+      if (zebra) doc.rect(left, y, tableW, rh).fill(ZEBRA);
       zebra = !zebra;
 
       let x = left;
       for (const c of columns) {
-        if (c.key === 'ret') {
+        if (l.span && spanKeys.includes(c.key)) {
+          if (c.key === 'male') doc.fillColor(INK).font('Helvetica').fontSize(fs).text(l.span, x + 4, y + ty, { width: spanW, lineGap: 1 });
+        } else if (c.key === 'ret') {
           if (l.lost) {
-            doc.fillColor(RED).font('Helvetica-Bold').fontSize(fs).text('LOST', x + 4, y + textY(fs), { width: c.w - 8, lineBreak: false });
+            doc.fillColor(RED).font('Helvetica-Bold').fontSize(fs).text('LOST', x + 4, y + ty, { width: c.w - 8, lineBreak: false });
           } else if (l.returned_at) {
-            doc.fillColor(INK).font('Helvetica').fontSize(fs).text(fmtShort(l.returned_at), x + 4, y + textY(fs), { width: c.w - 8, lineBreak: false });
+            doc.fillColor(INK).font('Helvetica').fontSize(fs).text(fmtShort(l.returned_at), x + 4, y + ty, { width: c.w - 8, lineBreak: false });
           } else {
-            doc.lineWidth(0.8).strokeColor(MUTED).rect(x + 6, y + (ROW_H - 10) / 2, 10, 10).stroke();
+            doc.lineWidth(0.8).strokeColor(MUTED).rect(x + 6, y + (rh === ROW_H ? (ROW_H - 10) / 2 : 4), 10, 10).stroke();
           }
         } else {
           doc.fillColor(INK).font(c.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(fs);
-          doc.text(fit(l.cells[c.key], c.w - 8), x + 4, y + textY(fs), { width: c.w - 8, align: c.align || 'left', lineBreak: false });
+          doc.text(fit(l.cells[c.key], c.w - 8), x + 4, y + ty, { width: c.w - 8, align: c.align || 'left', lineBreak: false });
         }
         x += c.w;
       }
-      doc.moveTo(left, y + ROW_H).lineTo(left + tableW, y + ROW_H).lineWidth(0.4).strokeColor(LINE).stroke();
-      y += ROW_H;
+      doc.moveTo(left, y + rh).lineTo(left + tableW, y + rh).lineWidth(0.4).strokeColor(LINE).stroke();
+      y += rh;
     }
 
     /* ----- sign-off ----- */

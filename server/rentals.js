@@ -124,6 +124,7 @@ export function deleteRental(id) {
 const PAT_WARN = { never: 'never PAT tested', overdue: 'PAT overdue' };
 
 export function checkout(item, rental, viaContainer) {
+  if (item.status === 'sold') return { state: 'blocked', text: 'SOLD — it cannot go out on a rental' };
   if (item.status === 'on_rental') {
     if (item.rental_id === rental.id) return { state: 'duplicate', text: 'already on this rental' };
     return { state: 'blocked', text: `already out on "${item.rental_name}" — return it first` };
