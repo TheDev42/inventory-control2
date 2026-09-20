@@ -4,6 +4,7 @@ import { initScanner, setInterceptor } from './scanner.js';
 import { errorBox } from './ui.js';
 
 import dashboardView from './views/dashboard.js';
+import overviewView from './views/overview.js';
 import inventoryView from './views/inventory.js';
 import itemView from './views/item.js';
 import itemFormView from './views/itemForm.js';
@@ -15,7 +16,7 @@ import patView from './views/pat.js';
 import bulkView from './views/bulk.js';
 
 const NAV = [
-  ['Overview', [['dashboard', 'Dashboard', '/dashboard']]],
+  ['Overview', [['dashboard', 'Dashboard', '/dashboard'], ['overview', 'Stock overview', '/overview']]],
   ['Equipment', [['inventory', 'Inventory', '/inventory'], ['bulk', 'Bulk add', '/bulk']]],
   ['Storage', [['containers', 'Containers', '/containers']]],
   ['Rentals', [['rentals', 'Rentals', '/rentals']]],
@@ -24,6 +25,7 @@ const NAV = [
 
 const ROUTES = [
   [/^\/dashboard$/, dashboardView, '/dashboard'],
+  [/^\/overview$/, overviewView, '/overview'],
   [/^\/inventory$/, inventoryView, '/inventory'],
   [/^\/items\/new$/, itemFormView, '/inventory'],
   [/^\/items\/(\d+)\/edit$/, itemFormView, '/inventory'],

@@ -377,6 +377,17 @@ th.ck, td.ck { width: 34px; padding-right: 0; }
 .pk-case select { max-width: 220px; }
 .containers-table td .badge { margin-left: 6px; }
 
+/* ---------- stock overview ---------- */
+.big-num { font-size: 1.15rem; font-weight: 700; color: var(--ink); }
+.big-num:hover { color: var(--accent); text-decoration: none; }
+td.avail .track { display: flex; width: 90px; height: 6px; margin: 4px 0 0 auto; }
+td.avail.all .big-num { color: var(--good); }
+td.avail.none .big-num { color: var(--critical); }
+.elsewhere { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: .82rem; }
+.chip-place { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.chip-place .dot { width: 8px; height: 8px; border-radius: 3px; background: var(--c); }
+table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 650; }
+
 /* ---------- toasts ---------- */
 .toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); }
 .toast { padding: 10px 14px; border-radius: 8px; background: var(--ink); color: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,.25); font-weight: 550; transition: opacity .25s, transform .25s; }
@@ -430,6 +441,19 @@ th.ck, td.ck { width: 34px; padding-right: 0; }
   .containers-table td:nth-child(4) { grid-area: it; justify-self: end; }
   .containers-table td:nth-child(5) { grid-area: st; justify-self: end; }
   .containers-table thead { display: none; }
+
+  /* stock overview: name, details, then total | available, then where the rest are */
+  .overview-table tbody tr { grid-template-columns: 1fr 1fr; grid-template-areas: "nm nm" "de de" "to av" "el el"; }
+  .overview-table td:nth-child(1) { grid-area: nm; }
+  .overview-table td:nth-child(2) { grid-area: de; }
+  .overview-table td:nth-child(3) { grid-area: to; text-align: left; }
+  .overview-table td:nth-child(4) { grid-area: av; text-align: right; }
+  .overview-table td:nth-child(5) { grid-area: el; }
+  .overview-table td:nth-child(3)::before { content: "Total "; color: var(--ink-2); font-size: .8rem; margin-right: 4px; }
+  .overview-table td:nth-child(4)::before { content: "Available "; color: var(--ink-2); font-size: .8rem; margin-right: 4px; }
+  .overview-table td.avail .track { margin-left: 0; width: 100%; }
+  .overview-table tbody tr.group-row { display: block; }
+  .overview-table tbody tr.group-row td { display: block; }
 
   /* picker: tick box, barcode, type, PAT; description and ends underneath */
   .pk-table { max-height: none; overflow: visible; } /* flows with the page; the add bar stays pinned */

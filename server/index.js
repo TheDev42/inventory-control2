@@ -10,7 +10,7 @@ import * as items from './items.js';
 import * as rentals from './rentals.js';
 import * as containers from './containers.js';
 import { handleScan } from './scan.js';
-import { dashboard } from './dashboard.js';
+import { dashboard, overview } from './dashboard.js';
 import { writeRentalPdf, safeFilename } from './pdf.js';
 import { writeLabelPdf, code128B } from './label.js';
 
@@ -70,6 +70,7 @@ app.get('/api/meta', (_req, res) => {
 });
 
 app.get('/api/dashboard', (_req, res) => res.json(dashboard()));
+app.get('/api/overview', (_req, res) => res.json(overview()));
 
 /* ---------- scanning ---------- */
 app.post('/api/scan', (req, res) => res.json(handleScan(req.body)));
