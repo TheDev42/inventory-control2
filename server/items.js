@@ -61,6 +61,7 @@ const SORTS = {
   owner: { expr: 'i.owner', text: true },
   rental: { expr: 'r.name', text: true },
   container: { expr: 'c.name', text: true },
+  location: { expr: 'i.location', text: true },
   pat: { expr: () => patCase(), text: true },
   last_pat: { expr: 'i.last_pat_date', text: true },
   next_pat: { expr: 'i.next_pat_due', text: true },
@@ -87,17 +88,24 @@ export function listItems(query = {}) {
   if (query.unassigned === '1') where.push('i.container_id IS NULL');
 
   const pat = patCase();
+  // Status and PAT status are turned into space-separated phrases for searching (e.g. 'in_stock' -> 'in stock').
+  // Matched as substrings like everything else, a short query word can accidentally land inside one of those words
+  // instead of matching it as a whole word — e.g. "to" is a substring of "stock", so any multi-word search containing
+  // "to" would match nearly every in-stock item regardless of what the rest of the query said. These two columns are
+  // matched as whole words (padded with spaces) to close that off; free-text columns keep ordinary substring matching.
+  const wordCols = new Set(["replace(i.status, '_', ' ')", `replace(${pat}, '_', ' ')`]);
   const terms = String(query.q || '').trim().split(/\s+/).filter(Boolean);
   for (const term of terms) {
     const like = `%${escapeLike(term)}%`;
+    const wordLike = ` ${escapeLike(term)} `;
     const cols = [
       'i.barcode', 'i.category', 'i.type', 'i.name', 'i.male_connector', 'i.female_connector', 'i.input_connector', 'i.outputs',
-      "(CASE i.owner WHEN 'personal' THEN 'personal mine me' ELSE 'company' END)",
-      "replace(i.status, '_', ' ')", 'r.name', 'c.name', 'c.barcode', 'CAST(i.length_m AS TEXT)',
+      'i.location', "(CASE i.owner WHEN 'personal' THEN 'personal mine me' ELSE 'company' END)",
+      "replace(i.status, '_', ' ')", 'r.name', 'c.name', 'c.barcode', 'c.location', 'CAST(i.length_m AS TEXT)',
       'i.last_pat_date', 'i.next_pat_due', `replace(${pat}, '_', ' ')`,
     ];
-    where.push('(' + cols.map((c) => `${c} LIKE ? ESCAPE '\\'`).join(' OR ') + ')');
-    args.push(...cols.map(() => like));
+    where.push('(' + cols.map((c) => (wordCols.has(c) ? `(' ' || ${c} || ' ') LIKE ? ESCAPE '\\'` : `${c} LIKE ? ESCAPE '\\'`)).join(' OR ') + ')');
+    args.push(...cols.map((c) => (wordCols.has(c) ? wordLike : like)));
   }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
@@ -205,6 +213,7 @@ export function cleanItem(d) {
     pat_required: patRequired,
     pat_interval_months: interval > 0 ? interval : 12,
     container_id: containerId,
+    location: str(d.location),
   };
 }
 
@@ -214,10 +223,10 @@ function insertItem(c) {
   const ts = nowIso();
   const res = run(
     `INSERT INTO items (barcode, category, type, name, male_connector, female_connector, input_connector, outputs, length_m,
-       pat_required, pat_interval_months, container_id, owner, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       pat_required, pat_interval_months, container_id, owner, location, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, c.owner, ts, ts
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, ts, ts
   );
   return getItem(Number(res.lastInsertRowid));
 }
@@ -271,9 +280,9 @@ export function updateItem(id, data) {
   if (existing.status === 'sold' && c.container_id) throw new HttpError(409, 'Sold items cannot be stored in a container');
   run(
     `UPDATE items SET barcode=?, category=?, type=?, name=?, male_connector=?, female_connector=?, input_connector=?, outputs=?, length_m=?,
-       pat_required=?, pat_interval_months=?, container_id=?, owner=?, updated_at=? WHERE id=?`,
+       pat_required=?, pat_interval_months=?, container_id=?, owner=?, location=?, updated_at=? WHERE id=?`,
     c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, c.owner, nowIso(), id
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, nowIso(), id
   );
   const item = getItem(id);
   logEvent({ action: 'edited', item, detail: 'Details edited' });

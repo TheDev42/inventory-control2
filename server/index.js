@@ -86,7 +86,7 @@ app.get('/api/items/export.csv', (req, res) => {
   let list = rows;
   for (let off = 1000; off < total; off += 1000) list = list.concat(items.listItems({ ...req.query, limit: 1000, offset: off }).items);
   const cols = ['barcode', 'category', 'type', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'status', 'owner',
-    'rental_name', 'container_name', 'pat_required', 'pat_status', 'last_pat_date', 'next_pat_due'];
+    'rental_name', 'container_name', 'location', 'pat_required', 'pat_status', 'last_pat_date', 'next_pat_due'];
   // Guard against spreadsheet formula injection in text cells
   const cell = (v) => {
     let s = v == null ? '' : String(v);

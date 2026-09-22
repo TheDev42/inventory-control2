@@ -9,7 +9,7 @@ const COLUMNS = [
 const SORT_OPTIONS = [
   ['barcode', 'Barcode'], ['category', 'Category'], ['type', 'Type'], ['name', 'Description'],
   ['male', 'Male end'], ['female', 'Female end'], ['length', 'Length'],
-  ['status', 'Status'], ['owner', 'Owner'], ['rental', 'Rental'], ['container', 'Container'],
+  ['status', 'Status'], ['owner', 'Owner'], ['rental', 'Rental'], ['container', 'Container'], ['location', 'Location'],
   ['pat', 'PAT status'], ['last_pat', 'Last PAT'], ['next_pat', 'PAT due'], ['created', 'Date added'],
 ];
 const MAX_BULK = 1000; // the API returns at most 1000 items per request
@@ -121,12 +121,13 @@ export default async function inventoryView({ el, query, isActive }) {
           <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : it.status === 'sold' ? 'is-sold' : ''}" data-id="${it.id}">
             <td class="ck"><input type="checkbox" class="inv-check" data-id="${it.id}" ${selected.has(it.id) ? 'checked' : ''} aria-label="Tick ${it.barcode}"></td>
             <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
-            <td><div class="cell-main">${itemTitle(it)} ${ownerBadge(it)}</div>${it.name ? html`<div class="cell-sub">${it.name}</div>` : ''}</td>
+            <td><div class="cell-main">${it.name || itemTitle(it)} ${ownerBadge(it)}</div>${it.name ? html`<div class="cell-sub">${itemTitle(it)}</div>` : ''}</td>
             <td>${ends(it)}</td>
             <td class="nowrap">${it.length_m != null ? `${it.length_m} m` : ''}</td>
             <td>${statusBadge(it.status)}
               ${it.rental_id ? html`<div class="cell-sub">Rental: <a href="#/rentals/${it.rental_id}">${it.rental_name}</a></div>` : ''}
-              ${it.container_id ? html`<div class="cell-sub">Container: <a href="#/containers/${it.container_id}">${it.container_name}</a></div>` : ''}</td>
+              ${it.container_id ? html`<div class="cell-sub">Container: <a href="#/containers/${it.container_id}">${it.container_name}</a></div>` : ''}
+              ${!it.container_id && it.location ? html`<div class="cell-sub">📍 ${it.location}</div>` : ''}</td>
             <td>${it.status === 'sold' ? '' : html`${patBadge(it.pat_status)}
               ${it.pat_status !== 'na' && it.next_pat_due ? html`<div class="cell-sub">Due ${fmtDate(it.next_pat_due)}</div>` : ''}
               ${it.pat_status !== 'na' && it.last_pat_date ? html`<div class="cell-sub">Last ${fmtDate(it.last_pat_date)}</div>` : ''}`}</td>

@@ -53,6 +53,7 @@ const HEADER_ALIASES = {
   input: 'input_connector', inputconnector: 'input_connector', in: 'input_connector',
   outputs: 'outputs', output: 'outputs', out: 'outputs',
   owner: 'owner', ownedby: 'owner', owned: 'owner',
+  location: 'location', yard: 'location', storedat: 'location',
   length: 'length_m', lengthm: 'length_m', lenm: 'length_m',
   pat: 'pat_required', patrequired: 'pat_required',
   interval: 'pat_interval_months', patinterval: 'pat_interval_months', patintervalmonths: 'pat_interval_months',
@@ -126,7 +127,7 @@ export default async function bulkView({ el }) {
     <div id="tab-csv" class="stack" hidden>
       <section class="card">
         <h2>Import from CSV</h2>
-        <p class="muted">Columns: <code>barcode, category, type</code> are required; optional: <code>name, male_connector, female_connector, length_m, pat_required, pat_interval_months</code>. <code>owner</code> is <code>company</code> (the default) or <code>me</code>. Distros use <code>input_connector</code> and <code>outputs</code> (e.g. <code>6x 16A Cee (blue); 2x 13A (BS1363)</code>) instead of the male/female ends.
+        <p class="muted">Columns: <code>barcode, category, type</code> are required; optional: <code>name, male_connector, female_connector, length_m, pat_required, pat_interval_months, location</code>. <code>owner</code> is <code>company</code> (the default) or <code>me</code>. Distros use <code>input_connector</code> and <code>outputs</code> (e.g. <code>6x 16A Cee (blue); 2x 13A (BS1363)</code>) instead of the male/female ends.
           Category is POWER / LIGHTING / SOUND. Paste from a spreadsheet, or choose a file. Barcodes that a spreadsheet has stripped of leading zeros (12 instead of 00012) are padded back to ${app.meta.barcodeDigits || 5} digits. <a href="#" id="csv-template">Download a template</a>.</p>
         <div class="field"><label for="csv-file">CSV file</label><input id="csv-file" type="file" accept=".csv,.txt,text/csv"></div>
         <div class="field" style="margin-top:10px"><label for="csv-text">…or paste here</label><textarea id="csv-text" rows="8" spellcheck="false"></textarea></div>

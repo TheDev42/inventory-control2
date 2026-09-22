@@ -30,7 +30,8 @@ export default async function itemView({ el, args, isActive }) {
           <div class="muted" style="margin-top:8px">
             ${it.rental_id ? html`${it.status === 'lost' ? 'Lost on' : 'Out on'} rental <a href="#/rentals/${it.rental_id}">${it.rental_name}</a>. ` : ''}
             ${it.container_id ? html`Stored in <a href="#/containers/${it.container_id}">${it.container_name}</a> (${it.container_barcode}). ` : ''}
-            ${!it.rental_id && !it.container_id && it.status === 'in_stock' ? 'In stock, not in a container.' : ''}
+            ${!it.rental_id && !it.container_id && it.status === 'in_stock' ? html`In stock, not in a container${it.location ? html` — 📍 ${it.location}` : ''}.` : ''}
+            ${it.location && (it.rental_id || it.container_id) ? html` (Recorded location: ${it.location})` : ''}
           </div>
         </div>
         <div class="actions">
@@ -88,6 +89,7 @@ export default async function itemView({ el, args, isActive }) {
               <dt>Type</dt><dd>${cap(it.type)}</dd>
               <dt>Description</dt><dd>${it.name || '—'}</dd>
               <dt>Owner</dt><dd>${app.meta.ownerLabels[it.owner] || it.owner}</dd>
+              <dt>Location</dt><dd>${it.location || '—'}</dd>
               ${app.meta.connectorTypes.includes(it.type) ? html`
                 <dt>Male end</dt><dd>${it.male_connector || '—'}</dd>
                 <dt>Female end</dt><dd>${it.female_connector || '—'}</dd>` : ''}

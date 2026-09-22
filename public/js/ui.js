@@ -57,6 +57,9 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
       ${containers.length || item.container_id ? html`<div class="field"><label for="f-container">Container</label>
         <select id="f-container" name="container_id"><option value="">— none —</option>
         ${containers.map((c) => html`<option value="${c.id}" ${c.id === item.container_id ? 'selected' : ''}>${c.name} (${c.barcode})</option>`)}</select></div>` : ''}
+      <div class="field"><label for="f-location">Location</label>
+        <input id="f-location" name="location" type="text" value="${item.location || ''}" placeholder="e.g. North Yard">
+        <span class="hint">Where this item is kept if it's not in a container — e.g. loose stock at another yard.</span></div>
     </div>`;
 }
 
@@ -112,6 +115,7 @@ export function readItemFields(root) {
     pat_required: v('pat_required').checked,
     pat_interval_months: v('pat_interval_months').value,
     owner: v('owner').value,
+    location: v('location')?.value.trim() || '',
   };
   if (v('input_connector')) {
     out.input_connector = v('input_connector').value.trim();
