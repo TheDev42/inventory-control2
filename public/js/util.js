@@ -80,6 +80,7 @@ export function timeAgo(iso) {
   return fmtDate(iso);
 }
 export const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+export const fmtMoney = (n) => `£${(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // Mirrors the server's normalizeBarcode() (server/catalog.js): pads a short numeric code up, and strips one
 // spurious leading zero from a code that's exactly one digit too long (the printed QR codes are 6 digits —

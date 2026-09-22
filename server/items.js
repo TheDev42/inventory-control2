@@ -224,6 +224,8 @@ export function cleanItem(d) {
   const outputs = isDistro ? cleanOutputs(d.outputs) : [];
   const length = str(d.length_m);
   if (length !== null && !Number.isFinite(Number(length))) throw new HttpError(400, `Invalid length "${d.length_m}"`);
+  const cost = str(d.cost);
+  if (cost !== null && (!Number.isFinite(Number(cost)) || Number(cost) < 0)) throw new HttpError(400, `Invalid cost "${d.cost}"`);
   let patRequired;
   if (d.pat_required === undefined || d.pat_required === null || d.pat_required === '') {
     patRequired = !(category === 'SOUND' && type === 'cable') ? 1 : 0; // signal cables don't need PAT
@@ -248,6 +250,7 @@ export function cleanItem(d) {
     pat_interval_months: interval > 0 ? interval : 12,
     container_id: containerId,
     location: str(d.location),
+    cost: cost === null ? null : Number(cost),
   };
 }
 
@@ -257,10 +260,10 @@ function insertItem(c) {
   const ts = nowIso();
   const res = run(
     `INSERT INTO items (barcode, category, type, name, male_connector, female_connector, input_connector, outputs, length_m,
-       pat_required, pat_interval_months, container_id, owner, location, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       pat_required, pat_interval_months, container_id, owner, location, cost, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, ts, ts
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, ts, ts
   );
   return getItem(Number(res.lastInsertRowid));
 }
@@ -314,9 +317,9 @@ export function updateItem(id, data) {
   if (existing.status === 'sold' && c.container_id) throw new HttpError(409, 'Sold items cannot be stored in a container');
   run(
     `UPDATE items SET barcode=?, category=?, type=?, name=?, male_connector=?, female_connector=?, input_connector=?, outputs=?, length_m=?,
-       pat_required=?, pat_interval_months=?, container_id=?, owner=?, location=?, updated_at=? WHERE id=?`,
+       pat_required=?, pat_interval_months=?, container_id=?, owner=?, location=?, cost=?, updated_at=? WHERE id=?`,
     c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, nowIso(), id
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, nowIso(), id
   );
   const item = getItem(id);
   logEvent({ action: 'edited', item, detail: 'Details edited' });

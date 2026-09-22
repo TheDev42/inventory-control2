@@ -97,6 +97,7 @@ export default async function itemView({ el, args, isActive }) {
                 <dt>Input (in)</dt><dd>${it.input_connector || '—'}</dd>
                 <dt>Outputs (out)</dt><dd>${outputsOf(it).length ? html`<ul class="plain">${outputsOf(it).map((o) => html`<li><strong>${o.qty}×</strong> ${o.connector}</li>`)}</ul>` : '—'}</dd>` : ''}
               <dt>Length</dt><dd>${it.length_m != null ? `${it.length_m} m` : '—'}</dd>
+              <dt>Cost</dt><dd>${it.cost != null ? `£${it.cost.toFixed(2)}` : '—'}</dd>
               <dt>Added</dt><dd>${fmtDate(it.created_at)}</dd>
             </dl>
           </section>

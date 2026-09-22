@@ -1,4 +1,4 @@
-import { api, html, mount, $, debounce, cap, itemTitle, ends, plural, qs } from '../util.js';
+import { api, html, mount, $, debounce, cap, itemTitle, ends, plural, qs, fmtMoney } from '../util.js';
 import { app } from '../state.js';
 
 // Where the items of a group are right now (colours match the dashboard's "Stock by type")
@@ -92,6 +92,7 @@ export default async function overviewView({ el, isActive }) {
     mount($('#ov-kpis', el), html`
       <div class="kpi"><div class="label">Kinds of item</div><div class="value">${t.kinds}</div></div>
       <div class="kpi"><div class="label">${owner === 'personal' ? 'Items I own' : owner === 'company' ? 'Company items' : 'Items you own'}</div><div class="value">${t.total}</div></div>
+      <div class="kpi"><div class="label">Total cost</div><div class="value">${fmtMoney(t.total_cost)}</div><div class="note">Of items with a cost recorded</div></div>
       <div class="kpi"><div class="label"><span class="dot" style="--c:var(--s1)"></span>Available</div><div class="value">${t.available}</div></div>
       <div class="kpi"><div class="label"><span class="dot" style="--c:var(--s2)"></span>On rental</div><div class="value">${t.on_rental}</div></div>
       <div class="kpi"><div class="label"><span class="dot" style="--c:var(--s7)"></span>Repair, lost or taken apart</div><div class="value">${t.repair + t.lost + t.disassembled}</div>

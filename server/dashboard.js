@@ -56,12 +56,14 @@ export function overview(ownerFilter) {
   const owner = ownerFilter ? parseOwner(ownerFilter) : null;
   const norm = (v) => String(v ?? '').trim().toLowerCase();
   const rows = all(
-    `SELECT category, type, name, male_connector, female_connector, input_connector, outputs, length_m, status, owner
+    `SELECT category, type, name, male_connector, female_connector, input_connector, outputs, length_m, status, owner, cost
      FROM items WHERE status != 'sold' ${owner ? 'AND owner = ?' : ''} ORDER BY id`,
     ...(owner ? [owner] : [])
   );
   const groups = new Map();
+  let totalCost = 0;
   for (const r of rows) {
+    totalCost += r.cost || 0;
     const key = [r.category, r.type, norm(r.name), norm(r.male_connector), norm(r.female_connector), norm(r.input_connector), r.outputs ?? '', r.length_m ?? ''].join('\u0001');
     let g = groups.get(key);
     if (!g) {
@@ -88,5 +90,6 @@ export function overview(ownerFilter) {
     cmp(a.male_connector, b.male_connector) || cmp(a.female_connector, b.female_connector) || (a.length_m ?? 0) - (b.length_m ?? 0));
   const totals = { kinds: list.length, total: 0, available: 0, on_rental: 0, repair: 0, lost: 0, disassembled: 0 };
   for (const g of list) for (const k of Object.keys(totals)) if (k !== 'kinds') totals[k] += g[k];
+  totals.total_cost = totalCost;
   return { groups: list, totals, sold: get(`SELECT COUNT(*) AS n FROM items WHERE status = 'sold'`).n };
 }

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS items (
   length_m REAL,
   status TEXT NOT NULL DEFAULT 'in_stock',
   location TEXT,
+  cost REAL,
   rental_id INTEGER REFERENCES rentals(id),
   container_id INTEGER REFERENCES containers(id) ON DELETE SET NULL,
   pat_required INTEGER NOT NULL DEFAULT 1,
@@ -135,6 +136,7 @@ ensureColumn('items', 'input_connector', 'TEXT');
 ensureColumn('items', 'outputs', 'TEXT');
 ensureColumn('items', 'owner', "TEXT NOT NULL DEFAULT 'company'"); // company | personal
 ensureColumn('items', 'location', 'TEXT'); // where a loose (not containered) item is physically kept, e.g. a different yard
+ensureColumn('items', 'cost', 'REAL'); // what it cost to buy, in GBP — admin info, not shown in the inventory list
 ensureColumn('containers', 'kind', "TEXT NOT NULL DEFAULT 'permanent'"); // permanent (always used) | temporary (one-off box)
 ensureColumn('rental_items', 'case_id', 'INTEGER REFERENCES containers(id) ON DELETE SET NULL'); // the case this line is packed in for the shipment
 

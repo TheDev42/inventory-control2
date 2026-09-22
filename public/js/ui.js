@@ -60,6 +60,9 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
       <div class="field"><label for="f-location">Location</label>
         <input id="f-location" name="location" type="text" value="${item.location || ''}" placeholder="e.g. North Yard">
         <span class="hint">Where this item is kept if it's not in a container — e.g. loose stock at another yard.</span></div>
+      ${isNew ? '' : html`<div class="field"><label for="f-cost">Cost (£)</label>
+        <input id="f-cost" name="cost" type="number" step="0.01" min="0" value="${item.cost ?? ''}" placeholder="e.g. 45.00">
+        <span class="hint">What it cost to buy. Only shown on this item's Details tab — never in the inventory list.</span></div>`}
     </div>`;
 }
 
@@ -125,6 +128,7 @@ export function readItemFields(root) {
   }
   if (v('barcode')) out.barcode = v('barcode').value.trim();
   if (v('container_id')) out.container_id = v('container_id').value;
+  if (v('cost')) out.cost = v('cost').value;
   return out;
 }
 
