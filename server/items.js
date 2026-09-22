@@ -94,20 +94,50 @@ export function listItems(query = {}) {
   // "to" would match nearly every in-stock item regardless of what the rest of the query said. These two columns are
   // matched as whole words (padded with spaces) to close that off; free-text columns keep ordinary substring matching.
   const wordCols = new Set(["replace(i.status, '_', ' ')", `replace(${pat}, '_', ' ')`]);
-  const terms = String(query.q || '').trim().split(/\s+/).filter(Boolean);
-  for (const term of terms) {
-    const like = `%${escapeLike(term)}%`;
-    const wordLike = ` ${escapeLike(term)} `;
-    const cols = [
-      'i.barcode', 'i.category', 'i.type', 'i.name', 'i.male_connector', 'i.female_connector', 'i.input_connector', 'i.outputs',
-      'i.location', "(CASE i.owner WHEN 'personal' THEN 'personal mine me' ELSE 'company' END)",
-      "replace(i.status, '_', ' ')", 'r.name', 'c.name', 'c.barcode', 'c.location', 'CAST(i.length_m AS TEXT)',
-      'i.last_pat_date', 'i.next_pat_due', `replace(${pat}, '_', ' ')`,
-    ];
-    where.push('(' + cols.map((c) => (wordCols.has(c) ? `(' ' || ${c} || ' ') LIKE ? ESCAPE '\\'` : `${c} LIKE ? ESCAPE '\\'`)).join(' OR ') + ')');
-    args.push(...cols.map((c) => (wordCols.has(c) ? wordLike : like)));
+  const rawQ = String(query.q || '').trim();
+  const terms = rawQ.split(/\s+/).filter(Boolean);
+
+  // The flexible search: every word must appear *somewhere*, each independently in any of these columns.
+  // A single field can satisfy more than one word on its own — e.g. a male connector logged as "PowerCON TRUE1
+  // Old" contains both "PowerCon" and "TRUE1" — so a query naming two different connectors (one per end) can
+  // match an item that only actually has one of them, with the other end being something else entirely.
+  function looseSearchClause() {
+    const w = [];
+    const a = [];
+    for (const term of terms) {
+      const like = `%${escapeLike(term)}%`;
+      const wordLike = ` ${escapeLike(term)} `;
+      const cols = [
+        'i.barcode', 'i.category', 'i.type', 'i.name', 'i.male_connector', 'i.female_connector', 'i.input_connector', 'i.outputs',
+        'i.location', "(CASE i.owner WHEN 'personal' THEN 'personal mine me' ELSE 'company' END)",
+        "replace(i.status, '_', ' ')", 'r.name', 'c.name', 'c.barcode', 'c.location', 'CAST(i.length_m AS TEXT)',
+        'i.last_pat_date', 'i.next_pat_due', `replace(${pat}, '_', ' ')`,
+      ];
+      w.push('(' + cols.map((c) => (wordCols.has(c) ? `(' ' || ${c} || ' ') LIKE ? ESCAPE '\\'` : `${c} LIKE ? ESCAPE '\\'`)).join(' OR ') + ')');
+      a.push(...cols.map((c) => (wordCols.has(c) ? wordLike : like)));
+    }
+    return { where: w, args: a };
   }
-  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+  // For a search of more than one word, try an exact-phrase match against the item's own barcode or description
+  // first — that's the most precise thing a multi-word query can mean, and it's how you'd naturally search for an
+  // item using the description you gave it yourself (e.g. "True1 To PowerCon Blue"). Only fall back to the
+  // word-by-word search above when nothing's own text literally contains that phrase; otherwise a shared word
+  // (like "PowerCon" above) can pull in a different, unrelated item that merely matches every word individually.
+  const baseWhere = where.slice();
+  const baseArgs = args.slice();
+  const countAndFetch = (extraWhere, extraArgs, orderSql, limit, offset) => {
+    const whereSql = [...baseWhere, ...extraWhere].length ? 'WHERE ' + [...baseWhere, ...extraWhere].join(' AND ') : '';
+    const allArgs = [...baseArgs, ...extraArgs];
+    const total = get(
+      `SELECT COUNT(*) AS n FROM items i
+       LEFT JOIN rentals r ON r.id = i.rental_id
+       LEFT JOIN containers c ON c.id = i.container_id ${whereSql}`,
+      ...allArgs
+    ).n;
+    const items = all(`${itemSelect()} ${whereSql} ${orderSql} LIMIT ? OFFSET ?`, ...allArgs, limit, offset);
+    return { items, total, whereSql, args: allArgs };
+  };
 
   const sort = SORTS[query.sort] || SORTS.barcode;
   const expr = typeof sort.expr === 'function' ? sort.expr() : sort.expr;
@@ -117,14 +147,18 @@ export function listItems(query = {}) {
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 1000);
   const offset = Math.max(parseInt(query.offset, 10) || 0, 0);
 
-  const total = get(
-    `SELECT COUNT(*) AS n FROM items i
-     LEFT JOIN rentals r ON r.id = i.rental_id
-     LEFT JOIN containers c ON c.id = i.container_id ${whereSql}`,
-    ...args
-  ).n;
-  const items = all(`${itemSelect()} ${whereSql} ${orderSql} LIMIT ? OFFSET ?`, ...args, limit, offset);
-  return { items, total };
+  if (terms.length > 1) {
+    const phraseLike = `%${escapeLike(rawQ)}%`;
+    const phraseWhere = [`(i.barcode LIKE ? ESCAPE '\\' OR i.name LIKE ? ESCAPE '\\')`];
+    const phraseArgs = [phraseLike, phraseLike];
+    const strict = countAndFetch(phraseWhere, phraseArgs, orderSql, limit, offset);
+    if (strict.total > 0) return { items: strict.items, total: strict.total };
+    // Nothing has that exact phrase — fall back to the flexible word-by-word search.
+  }
+
+  const loose = terms.length ? looseSearchClause() : { where: [], args: [] };
+  const result = countAndFetch(loose.where, loose.args, orderSql, limit, offset);
+  return { items: result.items, total: result.total };
 }
 
 /* ---------- validation ---------- */
