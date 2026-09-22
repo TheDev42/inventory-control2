@@ -1,4 +1,4 @@
-import { api, html, mount, $, $$, qs, debounce, cap, fmtDate, statusBadge, patBadge, ends, itemTitle, ownerBadge, toast, plural } from '../util.js';
+import { api, html, mount, $, $$, qs, debounce, cap, fmtDate, statusBadge, patBadge, ends, itemTitle, ownerBadge, toast, plural, fmtMoney } from '../util.js';
 import { app } from '../state.js';
 
 // The table stacks related details into one cell so it fits without sideways scrolling (ends and length each get their
@@ -80,7 +80,10 @@ export default async function inventoryView({ el, query, isActive }) {
       <span><strong>${n}</strong> selected</span>
       <label class="ctx-field">Set owner to
         <select id="bulk-owner" aria-label="New owner">${meta.owners.map((o) => html`<option value="${o}">${meta.ownerLabels[o]}</option>`)}</select></label>
-      <button class="btn small" type="button" data-bulk="apply">Apply</button>
+      <button class="btn small" type="button" data-bulk="apply-owner">Apply</button>
+      <label class="ctx-field">Set cost to
+        <input id="bulk-cost" type="number" step="0.01" min="0" inputmode="decimal" placeholder="£ e.g. 45.00" aria-label="New cost" style="width:100px"></label>
+      <button class="btn small" type="button" data-bulk="apply-cost">Apply</button>
       ${lastTotal > n ? html`<button class="btn ghost small" type="button" data-bulk="all">Select all ${Math.min(lastTotal, MAX_BULK)} matching</button>` : ''}
       <button class="btn ghost small" type="button" data-bulk="clear">Clear</button>
     </div>` : html``);
@@ -178,13 +181,24 @@ export default async function inventoryView({ el, query, isActive }) {
         if (data.total > MAX_BULK) toast(`Only the first ${MAX_BULK} matches were ticked. Narrow the filters for the rest`, 'info', 5000);
         renderBulk();
       } catch (err) { toast(err.message, 'error', 5000); }
-    } else if (act === 'apply') {
+    } else if (act === 'apply-owner') {
       const owner = $('#bulk-owner', el).value;
       try {
         const res = await api.post('/api/items/owner', { itemIds: [...selected], owner });
         toast(res.updated
           ? `${plural(res.updated, 'item')} set to ${meta.ownerLabels[owner]}`
           : `Nothing to change: they are already ${meta.ownerLabels[owner]}`, res.updated ? 'ok' : 'info');
+        selected.clear();
+        load();
+      } catch (err) { toast(err.message, 'error', 5000); }
+    } else if (act === 'apply-cost') {
+      const cost = $('#bulk-cost', el).value;
+      if (cost === '') { toast('Enter a cost first', 'error'); return; }
+      try {
+        const res = await api.post('/api/items/cost', { itemIds: [...selected], cost });
+        toast(res.updated
+          ? `Cost of ${plural(res.updated, 'item')} set to ${fmtMoney(res.cost)}`
+          : `Nothing to change: already ${fmtMoney(res.cost)}`, res.updated ? 'ok' : 'info');
         selected.clear();
         load();
       } catch (err) { toast(err.message, 'error', 5000); }

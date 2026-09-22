@@ -345,6 +345,28 @@ export function setOwner(itemIds, ownerValue) {
   return { updated, matched: ids.length, owner };
 }
 
+// Sets the cost of many items at once (e.g. a batch bought together). Unknown ids are ignored.
+export function setCost(itemIds, costValue) {
+  const raw = str(costValue);
+  if (raw === null || !Number.isFinite(Number(raw)) || Number(raw) < 0) throw new HttpError(400, `Invalid cost "${costValue}"`);
+  if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
+  if (itemIds.length > 5000) throw new HttpError(400, 'Too many items at once (max 5000)');
+  const ids = [...new Set(itemIds.map(Number).filter(Number.isInteger))];
+  const cost = Number(raw);
+  let updated = 0;
+  tx(() => {
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      updated += run(
+        `UPDATE items SET cost = ?, updated_at = ? WHERE (cost IS NULL OR cost != ?) AND id IN (${chunk.map(() => '?').join(',')})`,
+        cost, nowIso(), cost, ...chunk
+      ).changes;
+    }
+    if (updated) logEvent({ action: 'cost', detail: `Cost of ${updated} item(s) set to £${cost.toFixed(2)}` });
+  });
+  return { updated, matched: ids.length, cost };
+}
+
 export function deleteItem(id) {
   const item = getItem(id);
   if (!item) throw new HttpError(404, 'Item not found');

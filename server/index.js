@@ -101,6 +101,8 @@ app.get('/api/items/export.csv', (req, res) => {
 app.post('/api/items/bulk', (req, res) => res.json(items.bulkCreate(req.body?.items)));
 // Set the owner (company / me) of many items at once
 app.post('/api/items/owner', (req, res) => res.json(items.setOwner(req.body?.itemIds, req.body?.owner)));
+// Set the cost of many items at once
+app.post('/api/items/cost', (req, res) => res.json(items.setCost(req.body?.itemIds, req.body?.cost)));
 app.post('/api/items', (req, res) => res.status(201).json(items.createItem(req.body || {})));
 // null (not a 404) when the barcode is unknown, so the UI can check without a console error
 app.get('/api/items/lookup/:barcode', (req, res) => res.json(items.getItemByBarcode(req.params.barcode) || null));
