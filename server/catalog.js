@@ -81,7 +81,11 @@ export const BARCODE_DIGITS = Number.isNaN(parsedDigits) ? 5 : Math.max(0, parse
 
 export function normalizeBarcode(value) {
   const s = String(value ?? '').trim();
-  if (BARCODE_DIGITS && /^\d+$/.test(s) && s.length < BARCODE_DIGITS) return s.padStart(BARCODE_DIGITS, '0');
+  if (!BARCODE_DIGITS || !/^\d+$/.test(s)) return s;
+  if (s.length < BARCODE_DIGITS) return s.padStart(BARCODE_DIGITS, '0');
+  // The printed QR codes are one digit longer than the barcode itself, with a spurious leading zero
+  // (e.g. "012345" printed for barcode "12345") — strip exactly that one leading zero back off.
+  if (s.length === BARCODE_DIGITS + 1 && s[0] === '0') return s.slice(1);
   return s;
 }
 

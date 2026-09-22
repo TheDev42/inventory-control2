@@ -81,6 +81,18 @@ export function timeAgo(iso) {
 }
 export const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 
+// Mirrors the server's normalizeBarcode() (server/catalog.js): pads a short numeric code up, and strips one
+// spurious leading zero from a code that's exactly one digit too long (the printed QR codes are 6 digits —
+// "012345" — for a 5-digit barcode "12345"). The server re-normalizes on save regardless of what the client
+// does; this is just so you see the corrected code immediately, whether it came from a scan or you typed it.
+export function normalizeBarcode(value, digits) {
+  const s = String(value ?? '').trim();
+  if (!digits || !/^\d+$/.test(s)) return s;
+  if (s.length < digits) return s.padStart(digits, '0');
+  if (s.length === digits + 1 && s[0] === '0') return s.slice(1);
+  return s;
+}
+
 /* ---------- shared badges (icon + label, never colour alone) ---------- */
 const STATUS_META = {
   in_stock: { label: 'In stock', icon: '●', cls: 'st-stock' },

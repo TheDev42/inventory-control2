@@ -1,6 +1,7 @@
-import { api, html, mount, $, debounce, toast, notifyChanged, plural } from '../util.js';
+import { api, html, mount, $, debounce, toast, notifyChanged, plural, normalizeBarcode } from '../util.js';
 import { setInterceptor } from '../scanner.js';
 import { play } from '../audio.js';
+import { app } from '../state.js';
 
 const TABS = [['permanent', 'Permanent cases'], ['temporary', 'Temporary boxes'], ['all', 'All']];
 
@@ -55,10 +56,17 @@ export default async function containersView({ el, query, isActive }) {
   // While the "new container" form is open, a scan fills the barcode field.
   setInterceptor(async (code) => {
     if (form.hidden) return false;
-    barcode.value = code;
+    barcode.value = normalizeBarcode(code, app.meta.barcodeDigits);
     play('lookup');
     nameInput.focus();
     return true;
+  });
+
+  // Typing the code by hand and tabbing/clicking away gets it normalized too (e.g. a 6-digit QR code becomes
+  // the 5-digit barcode the system uses).
+  barcode.addEventListener('blur', () => {
+    const code = normalizeBarcode(barcode.value.trim(), app.meta.barcodeDigits);
+    if (code !== barcode.value) barcode.value = code;
   });
 
   form.addEventListener('submit', async (e) => {

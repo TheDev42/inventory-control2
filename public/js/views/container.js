@@ -1,6 +1,7 @@
-import { api, html, mount, $, toast, notifyChanged, plural } from '../util.js';
+import { api, html, mount, $, toast, notifyChanged, plural, normalizeBarcode } from '../util.js';
 import { state as scanState, setMode } from '../scanner.js';
 import { errorBox, itemsTable } from '../ui.js';
+import { app } from '../state.js';
 
 export default async function containerView({ el, args, isActive }) {
   const id = Number(args[0]);
@@ -132,6 +133,13 @@ export default async function containerView({ el, args, isActive }) {
   };
   // keep the label form's values in memory as you type
   el.oninput = (e) => { if (label && e.target.form?.id === 'label-form') label[e.target.name] = e.target.value; };
+  // Typing the barcode by hand and tabbing/clicking away normalizes it (e.g. a 6-digit QR code becomes the
+  // 5-digit barcode the system uses). focusout (not blur) so this delegated listener sees it.
+  el.onfocusout = (e) => {
+    if (e.target.id !== 'e-barcode') return;
+    const code = normalizeBarcode(e.target.value.trim(), app.meta.barcodeDigits);
+    if (code !== e.target.value) e.target.value = code;
+  };
   el.onsubmit = async (e) => {
     e.preventDefault();
     if (e.target.id !== 'edit-form') return;
@@ -144,5 +152,5 @@ export default async function containerView({ el, args, isActive }) {
   };
 
   await load();
-  return { refresh: load, destroy() { el.onclick = null; el.onsubmit = null; el.oninput = null; } };
+  return { refresh: load, destroy() { el.onclick = null; el.onsubmit = null; el.oninput = null; el.onfocusout = null; } };
 }

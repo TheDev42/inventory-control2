@@ -1,16 +1,18 @@
-import { api, html, mount, $, toast, notifyChanged, plural, cap } from '../util.js';
+import { api, html, mount, $, toast, notifyChanged, plural, cap, normalizeBarcode } from '../util.js';
 import { setInterceptor } from '../scanner.js';
 import { play } from '../audio.js';
 import { app, refreshConnectors } from '../state.js';
 import { itemFields, wireItemFields, readItemFields } from '../ui.js';
 
 /* ---------- parsing helpers ---------- */
+// Each code is normalized as it's parsed (e.g. a 6-digit QR code "012345" becomes barcode "12345"), whether it
+// arrived from a scan or was typed/pasted in — so two spellings of the same barcode are also correctly deduped.
 const parseCodes = (text) => {
   const seen = new Set();
   const list = [];
   let dupes = 0;
   for (const raw of text.split(/[\n\r\t,;]+/)) {
-    const c = raw.trim();
+    const c = normalizeBarcode(raw.trim(), app.meta.barcodeDigits);
     if (!c) continue;
     if (seen.has(c.toLowerCase())) { dupes++; continue; }
     seen.add(c.toLowerCase());
@@ -67,7 +69,10 @@ function csvToItems(text) {
   for (const need of ['barcode', 'category', 'type']) if (!map.includes(need)) problems.push(`Missing "${need}" column`);
   const items = rows.slice(1).map((r) => {
     const o = {};
-    map.forEach((key, i) => { if (key && r[i] !== undefined && r[i].trim() !== '') o[key] = r[i].trim(); });
+    map.forEach((key, i) => {
+      if (!key || r[i] === undefined || r[i].trim() === '') return;
+      o[key] = key === 'barcode' ? normalizeBarcode(r[i].trim(), app.meta.barcodeDigits) : r[i].trim();
+    });
     return o;
   });
   return { items, problems };
@@ -151,9 +156,10 @@ export default async function bulkView({ el }) {
   $('#codes-clear', el).addEventListener('click', () => { ta.value = ''; refreshCount(); });
 
   const addCodes = (codes) => {
+    const normalized = codes.map((c) => normalizeBarcode(c, app.meta.barcodeDigits));
     const { list } = parseCodes(ta.value);
     const have = new Set(list.map((c) => c.toLowerCase()));
-    const fresh = codes.filter((c) => !have.has(c.toLowerCase()));
+    const fresh = normalized.filter((c) => !have.has(c.toLowerCase()));
     ta.value = [...list, ...fresh].join('\n') + (fresh.length || list.length ? '\n' : '');
     ta.scrollTop = ta.scrollHeight;
     refreshCount();
@@ -163,6 +169,7 @@ export default async function bulkView({ el }) {
   // Scans on this page (with nothing focused) are appended to the list
   setInterceptor(async (code) => {
     if (tab !== 'list') return false;
+    code = normalizeBarcode(code, app.meta.barcodeDigits);
     const added = addCodes([code]);
     play(added ? 'store' : 'warn');
     if (!added) toast(`${code} is already in the list`, 'error');

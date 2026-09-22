@@ -1,4 +1,4 @@
-import { api, html, mount, $, toast, notifyChanged, plural } from '../util.js';
+import { api, html, mount, $, toast, notifyChanged, plural, normalizeBarcode } from '../util.js';
 import { app, refreshConnectors } from '../state.js';
 import { setInterceptor } from '../scanner.js';
 import { play } from '../audio.js';
@@ -42,7 +42,10 @@ export default async function itemFormView({ el, args, query }) {
   }
 
   // Scanning while this page is open fills the barcode box (and warns if that code is already in the system).
+  // Codes are normalized first (e.g. a 6-digit QR code "012345" becomes barcode "12345") so what lands in the
+  // box, what gets checked for a clash, and what gets saved are always the same code.
   setInterceptor(async (code) => {
+    code = normalizeBarcode(code, app.meta.barcodeDigits);
     if (!(await warnIfTaken(code))) { barcodeInput.value = code; play('lookup'); }
     return true;
   });
@@ -52,10 +55,17 @@ export default async function itemFormView({ el, args, query }) {
   barcodeInput.addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    const code = barcodeInput.value.trim();
+    const code = normalizeBarcode(barcodeInput.value.trim(), app.meta.barcodeDigits);
+    barcodeInput.value = code;
     if (code && await warnIfTaken(code)) { barcodeInput.select(); return; }
     if (code) play('lookup');
     $('[name=name]', form)?.focus();
+  });
+
+  // Typing the code by hand and tabbing/clicking away (no Enter) still gets it normalized before it's saved.
+  barcodeInput.addEventListener('blur', () => {
+    const code = normalizeBarcode(barcodeInput.value.trim(), app.meta.barcodeDigits);
+    if (code !== barcodeInput.value) barcodeInput.value = code;
   });
 
   let submitter = null;
