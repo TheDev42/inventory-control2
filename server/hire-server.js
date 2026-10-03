@@ -6,6 +6,7 @@
    barcodes, item ids, costs, owners, PAT records, rentals, containers or the activity log. The only
    thing it writes is a hire request — which becomes a real, active rental immediately. */
 import express from 'express';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,6 +15,17 @@ import * as hire from './hire.js';
 import { writeRentalPdf, safeFilename } from './pdf.js';
 
 const hireDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'hire');
+
+// Shown until an admin uploads a logo of their own (Hire site → Pictures & wording → Logo), so the
+// site never has to launch with just a text wordmark. The hire site is light, so this wants the
+// black-on-transparent logo rather than the white one the (dark) PDF header uses. Override with
+// HIRE_LOGO_PATH, or set it to an empty string to start with no logo at all.
+const DEFAULT_LOGO_PATH = process.env.HIRE_LOGO_PATH ?? path.join(path.dirname(fileURLToPath(import.meta.url)), 'assets', 'FaderUp-Logo-black.png');
+let defaultLogo = null;
+if (DEFAULT_LOGO_PATH) {
+  try { defaultLogo = { data: fs.readFileSync(DEFAULT_LOGO_PATH), mime: DEFAULT_LOGO_PATH.endsWith('.png') ? 'image/png' : 'image/jpeg' }; }
+  catch { /* no bundled logo file: falls back to the text wordmark until one is uploaded */ }
+}
 
 // Dates from the query string: only ever a plain YYYY-MM-DD, anything else is ignored.
 const dateRange = (req) => {
@@ -85,7 +97,13 @@ export function createHireApp() {
     const { scope, key } = req.params;
     if (!hire.SCOPES.has(scope) || !/^[a-z0-9-]{1,80}$/.test(key)) throw new HttpError(404, 'Not found');
     const row = hire.getImage(scope, key);
-    if (!row) throw new HttpError(404, 'No picture');
+    if (!row) {
+      if (scope === 'site' && key === 'logo' && defaultLogo) {
+        res.set({ 'Content-Type': defaultLogo.mime, 'Cache-Control': 'public, max-age=300' });
+        return res.send(defaultLogo.data);
+      }
+      throw new HttpError(404, 'No picture');
+    }
     res.set({ 'Content-Type': row.image_mime, 'Cache-Control': 'public, max-age=60', ETag: `"${scope}-${key}-${row.updated_at}"` });
     if (req.headers['if-none-match'] === res.get('ETag')) return res.status(304).end();
     res.send(Buffer.from(row.image));

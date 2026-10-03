@@ -20,6 +20,7 @@ Settings are in `docker-compose.yml`:
 | `AUTH_USER` / `AUTH_PASS` | Optional. Set both to require a login (basic auth). **Do this if the server is reachable from the internet, and put it behind HTTPS.** |
 | `HIRE_PORT` | The public hire site's port inside the container, default `3090` (published as **90**). `0` turns the site off altogether |
 | `HIRE_CONTACT_EMAIL` / `HIRE_CONTACT_PHONE` | Optional. Shown in the hire site's footer so customers can get hold of you |
+| `HIRE_LOGO_PATH` | Logo shown at the top of the hire site until you upload your own from *Hire site → Pictures & wording*; default is the bundled `server/assets/FaderUp-Logo-black.png`. Set to an empty string for no logo at all until one is uploaded |
 | `HIRE_TRUST_PROXY` | Set to `1` if the hire site sits behind a reverse proxy, so its rate limiting sees the real caller rather than the proxy |
 
 **Backups:** the *Backup* button (bottom of the sidebar) downloads a copy of the database. To restore, stop the container (`docker compose down`) and put the file at `data/inventory.db`. If you copy the file by hand instead, stop the app first (or copy `inventory.db-wal` and `inventory.db-shm` with it, which the app keeps beside it while running).
