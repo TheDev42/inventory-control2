@@ -8,7 +8,7 @@ Barcode inventory, rentals and PAT tracking for an events / power / lighting / s
 docker compose up -d --build
 ```
 
-Open `http://<server>` (port 80, so no port number is needed). The database (SQLite) is the file **`data/inventory.db`** in this project folder, next to `docker-compose.yml`, so it survives rebuilds and is easy to find. (`data/` is git-ignored, so it is never committed.)
+Open `http://<server>` (port 80, so no port number is needed) for the staff app. The customer-facing **hire site** is the same container on **port 90** — `http://<server>:90` — and is the only port meant to be exposed to the internet; see [Public hire site](#public-hire-site-port-90). The database (SQLite) is the file **`data/inventory.db`** in this project folder, next to `docker-compose.yml`, so it survives rebuilds and is easy to find. (`data/` is git-ignored, so it is never committed.)
 
 Settings are in `docker-compose.yml`:
 
@@ -18,6 +18,9 @@ Settings are in `docker-compose.yml`:
 | `TZ` | Time zone (matters for PAT "due" dates), default `Europe/London` |
 | `BARCODE_DIGITS` | Barcode width, default `5` (`00001`). Numeric codes shorter than this are padded with leading zeros; `0` turns padding off |
 | `AUTH_USER` / `AUTH_PASS` | Optional. Set both to require a login (basic auth). **Do this if the server is reachable from the internet, and put it behind HTTPS.** |
+| `HIRE_PORT` | The public hire site's port inside the container, default `3090` (published as **90**). `0` turns the site off altogether |
+| `HIRE_CONTACT_EMAIL` / `HIRE_CONTACT_PHONE` | Optional. Shown in the hire site's footer so customers can get hold of you |
+| `HIRE_TRUST_PROXY` | Set to `1` if the hire site sits behind a reverse proxy, so its rate limiting sees the real caller rather than the proxy |
 
 **Backups:** the *Backup* button (bottom of the sidebar) downloads a copy of the database. To restore, stop the container (`docker compose down`) and put the file at `data/inventory.db`. If you copy the file by hand instead, stop the app first (or copy `inventory.db-wal` and `inventory.db-shm` with it, which the app keeps beside it while running).
 
@@ -33,6 +36,55 @@ docker compose up -d --build
 ```
 
 (On Windows PowerShell use `${PWD}\data` instead of `$(pwd)/data`.) The old volume is left untouched; remove it later with `docker volume rm inventory-data` once you have checked everything is there.
+
+## Public hire site (port 90)
+
+A second, customer-facing website runs in the same container on **port 90**. It is a separate app from the
+one on port 80: separate port, separate pages, no admin routes and no login prompt. **Port 90 is the only
+one to expose to the internet** — leave port 80 on your own network (or behind `AUTH_USER` / `AUTH_PASS`
+and HTTPS), because it can change and delete everything.
+
+What it serves, and nothing else: your sub-categories, the kinds of item in each, and how many are free.
+Barcodes, item ids, costs, owners, PAT records, rentals, containers and the activity log are not on it at
+all. The only thing a visitor can write is a hire request.
+
+### What a customer does
+
+1. **Browse freely.** The front page lists every sub-category (Power cable, Lighting light, Sound audio…)
+   as a square tile, grouped by category. Opening one shows a grid of the kinds of item in it with how
+   many are available. Opening an item shows its about page: details, connectors, length, how many you
+   own, how many are free, and whatever wording you have written for it. None of this asks for anything.
+2. **Give their details.** The first time they try to put something in a **flight case** (the cart) they
+   are asked for the hire dates, the client, the event, their name and their email — once, then it is
+   remembered on their device and shown in a strip at the top. Nothing before that point needs it.
+3. **Fill a flight case.** Quantities are capped at what is actually free for their dates, and the flight
+   case page re-checks that every time it is opened.
+4. **Send it.** That creates a request with a reference like `FC-K4R9TM`. Nothing is booked by it.
+
+### Availability
+
+With no dates chosen, the numbers are simply what is in stock right now. Once dates are given, an item
+counts as free unless it is lost, disassembled, in repair or sold, or it is already on an active rental
+whose dates overlap. A rental with no end date — or one whose kit is still out past its end date —
+blocks every future window, because there is no telling when that kit is coming back. Pending hire
+requests do **not** hold stock: only a real rental does.
+
+### Your side of it: *Hire site* in the sidebar
+
+- **Pictures & wording** lists every sub-category tile and every kind of item. For each one you can set a
+  square picture, the name shown on the site, and an about text. Pictures are cropped square from the
+  middle and shrunk in the browser before they are saved, so any photo works and the database stays small.
+  They live in the database, so the *Backup* button includes them.
+- **Requests** is the inbox. Each one shows the dates, client, event, who asked, their email and what they
+  asked for, with the quantities re-checked against what is free *now*. **Create a rental from this** opens
+  a rental with the client, event, dates and a list of what was asked for already filled in — the kit
+  itself still has to be picked or scanned onto it, because a request names kinds of item, not barcodes.
+  You can also mark a request accepted or declined, or delete it.
+
+The catalogue is your inventory, so there is no second list to maintain: add stock and it appears. The one
+thing to know is that a "kind of item" is a group of identical items — the same grouping the Stock
+overview uses (category, type, description, connectors, length) — so editing one of those fields in the
+inventory moves an item into a different group, which has its own picture and wording.
 
 ## Scanning
 
@@ -78,5 +130,7 @@ Needs Node 22.13+ (uses the built-in `node:sqlite`, so there are no native modul
 
 ```bash
 npm install
-npm start          # http://localhost:3000, data in ./data
+npm start          # staff app on http://localhost:3000, hire site on http://localhost:3090, data in ./data
 ```
+
+Both apps run in the one process and share the database. `HIRE_PORT=0 npm start` leaves the hire site out.

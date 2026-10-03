@@ -1,0 +1,112 @@
+/* The customer-facing hire site, on its own port (90 by default) so it can be exposed to the internet
+   while the admin app on port 80 stays private. It is a separate Express app in the same process: it
+   shares the database, but none of the admin routes and none of the admin login exist on it.
+
+   What it will serve: sub-categories, kinds of item and how many are free. What it will never serve:
+   barcodes, item ids, costs, owners, PAT records, rentals, containers or the activity log. The only
+   thing it writes is a hire request. */
+import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { HttpError, today } from './db.js';
+import * as hire from './hire.js';
+
+const hireDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'hire');
+
+// Dates from the query string: only ever a plain YYYY-MM-DD, anything else is ignored.
+const dateRange = (req) => {
+  const d = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v ?? '')) ? String(v) : undefined);
+  const start = d(req.query.start);
+  const end = d(req.query.end);
+  return start && end && end >= start ? { start, end } : {};
+};
+
+/* A plain in-memory limiter for the one route that writes. It is per-process and resets on restart,
+   which is all that is needed here: it exists to stop a stuck script or a bored visitor filling the
+   table, not to survive a determined attack. Put the site behind a proper proxy for that. */
+function rateLimiter({ max, windowMs }) {
+  const hits = new Map();
+  return (req, res, next) => {
+    const now = Date.now();
+    if (hits.size > 5000) for (const [k, v] of hits) if (now - v[0] > windowMs) hits.delete(k);
+    const key = req.ip || 'unknown';
+    const entry = hits.get(key);
+    if (!entry || now - entry[0] > windowMs) hits.set(key, [now, 1]);
+    else if (++entry[1] > max) {
+      res.set('Retry-After', String(Math.ceil((windowMs - (now - entry[0])) / 1000)));
+      return res.status(429).json({ error: 'Too many requests from here. Please try again later.' });
+    }
+    next();
+  };
+}
+
+export function createHireApp() {
+  const app = express();
+  const COMPANY = process.env.COMPANY_NAME || 'FaderUp';
+  const CONTACT_EMAIL = process.env.HIRE_CONTACT_EMAIL || '';
+  const CONTACT_PHONE = process.env.HIRE_CONTACT_PHONE || '';
+
+  app.disable('x-powered-by');
+  app.set('etag', 'strong');
+  // Behind a reverse proxy, set HIRE_TRUST_PROXY=1 so the rate limiter sees the real client address.
+  if (process.env.HIRE_TRUST_PROXY) app.set('trust proxy', process.env.HIRE_TRUST_PROXY === '1' ? 1 : process.env.HIRE_TRUST_PROXY);
+
+  app.use((_req, res, next) => {
+    res.set({
+      'Content-Security-Policy':
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; " +
+        "font-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'no-referrer',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+    });
+    next();
+  });
+
+  app.get('/healthz', (_req, res) => res.json({ ok: true }));
+
+  app.use('/api', express.json({ limit: '64kb' }));
+
+  /* ---------- browsing (read-only, no details needed) ---------- */
+  app.get('/api/meta', (_req, res) =>
+    res.json({ company: COMPANY, contactEmail: CONTACT_EMAIL, contactPhone: CONTACT_PHONE, today: today() }));
+
+  app.get('/api/catalogue', (req, res) => res.json(hire.catalogue(dateRange(req))));
+  app.get('/api/subcategories/:slug', (req, res) => res.json(hire.subcategoryPage(String(req.params.slug), dateRange(req))));
+  app.get('/api/items/:key', (req, res) => res.json(hire.typePage(String(req.params.key), dateRange(req))));
+
+  // Square pictures, straight out of the database. Keys are validated so nothing here can touch the filesystem.
+  app.get('/img/:scope/:key', (req, res) => {
+    const { scope, key } = req.params;
+    if (!hire.SCOPES.has(scope) || !/^[a-z0-9-]{1,80}$/.test(key)) throw new HttpError(404, 'Not found');
+    const row = hire.getImage(scope, key);
+    if (!row) throw new HttpError(404, 'No picture');
+    res.set({ 'Content-Type': row.image_mime, 'Cache-Control': 'public, max-age=60', ETag: `"${scope}-${key}-${row.updated_at}"` });
+    if (req.headers['if-none-match'] === res.get('ETag')) return res.status(304).end();
+    res.send(Buffer.from(row.image));
+  });
+
+  /* ---------- sending a flight case in ---------- */
+  app.post('/api/requests', rateLimiter({ max: 12, windowMs: 60 * 60 * 1000 }), (req, res) => {
+    const { reference } = hire.createRequest(req.body || {});
+    res.status(201).json({ reference });
+  });
+
+  /* ---------- static site ---------- */
+  app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
+  app.use(express.static(hireDir, { etag: true, maxAge: 0, index: 'index.html' }));
+  app.get('*', (_req, res) => res.sendFile(path.join(hireDir, 'index.html')));
+
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, _req, res, _next) => {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message, short: err.short });
+    if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Bad request' });
+    console.error('[hire]', err);
+    res.status(500).json({ error: 'Something went wrong' });
+  });
+
+  return app;
+}

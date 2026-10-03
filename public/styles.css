@@ -389,6 +389,22 @@ td.avail.none .big-num { color: var(--critical); }
 .chip-place .dot { width: 8px; height: 8px; border-radius: 3px; background: var(--c); }
 table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 650; }
 
+/* ---------- hire site admin (pictures, wording, requests) ---------- */
+.hire-head { margin: 26px 0 4px; }
+.hire-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); margin-top: 12px; }
+.hire-tile { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.hire-tile:has(.hire-edit) { grid-column: 1 / -1; }
+.hire-thumb { aspect-ratio: 1 / 1; background: var(--surface-2); }
+.hire-tile:has(.hire-edit) .hire-thumb { aspect-ratio: auto; height: 180px; }
+.hire-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hire-thumb .ph { width: 100%; height: 100%; display: grid; place-items: center; color: var(--line-strong); }
+.hire-thumb .ph svg { width: 40%; height: 40%; fill: none; stroke: currentColor; }
+.hire-body { padding: 12px 14px 14px; display: grid; gap: 6px; justify-items: start; }
+.hire-name { font-weight: 600; line-height: 1.3; }
+.hire-flags { display: flex; gap: 6px; flex-wrap: wrap; }
+.hire-edit { padding: 0 14px 16px; display: grid; gap: 12px; border-top: 1px solid var(--line); margin-top: 2px; padding-top: 14px; }
+.hire-about { white-space: pre-wrap; overflow-wrap: anywhere; }
+
 /* ---------- toasts ---------- */
 .toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); }
 .toast { padding: 10px 14px; border-radius: 8px; background: var(--ink); color: var(--surface); box-shadow: 0 6px 24px rgba(0,0,0,.25); font-weight: 550; transition: opacity .25s, transform .25s; }

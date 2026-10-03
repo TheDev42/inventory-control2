@@ -15,7 +15,8 @@ services:
       data-perms:
         condition: service_completed_successfully
     ports:
-      - "80:3000"   # host port 80 -> the app's port 3000 inside the container
+      - "80:3000"   # host port 80 -> the admin app's port 3000 inside the container
+      - "90:3090"   # host port 90 -> the public hire site. This is the only port to expose to the internet
     volumes:
       - ./data:/data   # the database lives here: the "data" folder next to this file (data/inventory.db)
     environment:
@@ -24,6 +25,13 @@ services:
       COMPANY_NAME: "FaderUp"
       # Barcode width: numeric codes shorter than this are zero-padded (12 -> 00012). 0 = off
       BARCODE_DIGITS: "5"
+      # Public hire site (port 90). HIRE_PORT: "0" turns it off entirely
+      HIRE_PORT: "3090"
+      # Shown in the hire site footer so customers can get hold of you
+      HIRE_CONTACT_EMAIL: ""
+      HIRE_CONTACT_PHONE: ""
+      # Set to 1 if the hire site sits behind a reverse proxy, so rate limiting sees the real caller
+      # HIRE_TRUST_PROXY: "1"
       # Optional: uncomment to require a login (browser basic-auth prompt)
       # AUTH_USER: admin
       # AUTH_PASS: change-me

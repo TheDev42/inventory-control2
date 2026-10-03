@@ -13,6 +13,8 @@ import { handleScan } from './scan.js';
 import { dashboard, overview } from './dashboard.js';
 import { writeRentalPdf, safeFilename } from './pdf.js';
 import { writeLabelPdf, code128B } from './label.js';
+import * as hire from './hire.js';
+import { createHireApp } from './hire-server.js';
 
 const app = express();
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -182,6 +184,40 @@ app.get('/api/containers/:id/label.pdf', (req, res) => {
 app.post('/api/containers/clear-temporary', (_req, res) => res.json({ removed: containers.clearFinishedTemporary() }));
 app.post('/api/containers/:id/empty', (req, res) => res.json({ removed: containers.emptyContainer(id(req)) }));
 
+/* ---------- hire site (admin side: pictures, about text and the requests that come in) ---------- */
+// The public site itself is a separate app on its own port — see hire-server.js.
+const hireKey = (req) => {
+  const { scope, key } = req.params;
+  if (!hire.SCOPES.has(scope) || !/^[a-z0-9-]{1,80}$/.test(key)) throw new HttpError(400, 'Invalid picture key');
+  return { scope, key };
+};
+app.get('/api/hire/catalogue', (_req, res) => res.json(hire.adminCatalogue()));
+app.get('/api/hire/img/:scope/:key', (req, res) => {
+  const { scope, key } = hireKey(req);
+  const row = hire.getImage(scope, key);
+  if (!row) throw new HttpError(404, 'No picture');
+  res.set({ 'Content-Type': row.image_mime, 'Cache-Control': 'no-store' }).send(Buffer.from(row.image));
+});
+// The picture arrives as a data URL; the browser has already cropped it square and shrunk it.
+app.put('/api/hire/meta/:scope/:key', (req, res) => {
+  const { scope, key } = hireKey(req);
+  const body = req.body || {};
+  const patch = { label: body.label, about: body.about, clearImage: body.image === null };
+  if (typeof body.image === 'string' && body.image) {
+    const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(body.image.trim());
+    if (!m) throw new HttpError(400, 'Pictures must be PNG, JPEG or WebP');
+    patch.imageMime = m[1];
+    patch.image = Buffer.from(m[2], 'base64');
+  }
+  res.json(hire.saveMeta(scope, key, patch));
+});
+app.get('/api/hire/requests', (req, res) => res.json(hire.listRequests({ status: req.query.status })));
+app.get('/api/hire/requests/:id', (req, res) => res.json(hire.requestDetail(id(req))));
+app.post('/api/hire/requests/:id/status', (req, res) => res.json(hire.setRequestStatus(id(req), req.body?.status)));
+// Opens a rental from the request (client, event and dates pre-filled; the kit still has to be picked or scanned on)
+app.post('/api/hire/requests/:id/rental', (req, res) => res.status(201).json(hire.createRentalFromRequest(id(req), rentals.createRental)));
+app.delete('/api/hire/requests/:id', (req, res) => res.json(hire.deleteRequest(id(req))));
+
 /* ---------- activity + backup ---------- */
 app.get('/api/events', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 500);
@@ -213,3 +249,16 @@ app.use((err, _req, res, _next) => {
 
 const port = parseInt(process.env.PORT, 10) || 3000;
 app.listen(port, '0.0.0.0', () => console.log(`Inventory tracker listening on :${port} (data in ${DATA_DIR})`));
+
+/* The public hire site, on its own port so only that one needs to be exposed to the internet.
+   Set HIRE_PORT=0 to turn it off. */
+const parsedHirePort = parseInt(process.env.HIRE_PORT ?? '', 10);
+const hirePort = Number.isNaN(parsedHirePort) ? 3090 : parsedHirePort;
+if (hirePort > 0) {
+  // Its own listener, so a problem with the public site (a taken port, say) cannot take the staff app down with it.
+  createHireApp()
+    .listen(hirePort, '0.0.0.0', () => console.log(`Hire site listening on :${hirePort}`))
+    .on('error', (err) => console.error(`Hire site could not start on :${hirePort} — ${err.message}. The staff app is unaffected.`));
+} else {
+  console.log('Hire site disabled (HIRE_PORT=0)');
+}
