@@ -369,6 +369,19 @@ table.data tbody tr.pk-blocked td { opacity: .55; }
 .case-row.on { border-color: var(--accent); }
 .case-meta { color: var(--ink-2); font-size: .85rem; }
 .case-select { width: 100%; min-width: 130px; max-width: 220px; padding: 5px 8px; font-size: .85rem; }
+
+/* ---------- kit requirements on a rental ---------- */
+.req-panel .card-head { flex-wrap: wrap; gap: 6px 14px; }
+.req-list { display: grid; gap: 8px; margin-top: 10px; }
+.req-row {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+}
+.req-main { min-width: 0; }
+.req-progress { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.req-progress .track { flex: 1; min-width: 60px; }
+.req-qty { width: 64px; }
+@media (max-width: 640px) { .req-row { grid-template-columns: 1fr; gap: 6px; } }
 .bulk-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -404,6 +417,21 @@ table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 65
 .hire-flags { display: flex; gap: 6px; flex-wrap: wrap; }
 .hire-edit { padding: 0 14px 16px; display: grid; gap: 12px; border-top: 1px solid var(--line); margin-top: 2px; padding-top: 14px; }
 .hire-about { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.hire-logo-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.hire-logo-preview { flex: 1 1 260px; min-height: 64px; display: flex; align-items: center; }
+.hire-logo-preview img { max-height: 72px; max-width: 320px; object-fit: contain; }
+.hire-logo-actions { display: flex; gap: 8px; align-items: center; }
+
+.reorder-sub-head { font-weight: 650; margin: 22px 0 8px; }
+.reorder-group { margin-bottom: 8px; }
+.reorder-list { display: flex; flex-direction: column; gap: 6px; }
+.reorder-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.reorder-main { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.reorder-main strong { white-space: nowrap; }
+.reorder-section { max-width: 180px; }
+.reorder-move { display: flex; gap: 4px; flex: none; }
+.reorder-move .btn { width: 30px; padding: 4px; }
 
 /* ---------- toasts ---------- */
 .toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); }

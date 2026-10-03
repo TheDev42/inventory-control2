@@ -57,8 +57,9 @@ export default async function rentalsView({ el, query, isActive }) {
       html`<button class="tab" type="button" data-status="${k}" aria-pressed="${String(s.status === k)}">${l}<span class="count">${counts[k]}</span></button>`)}`);
     const today = app.meta.today;
     mount($('#rental-list', el), list.length ? html`<div class="table-wrap"><table class="data">
-      <thead><tr><th>Rental</th><th>Customer</th><th>Dates</th><th class="num">Out</th><th class="num">Returned</th><th class="num">Lost</th><th>Status</th></tr></thead>
+      <thead><tr><th>Job</th><th>Rental</th><th>Customer</th><th>Dates</th><th class="num">Out</th><th class="num">Returned</th><th class="num">Lost</th><th>Status</th></tr></thead>
       <tbody>${list.map((r) => html`<tr class="clickable" data-id="${r.id}">
+        <td><a class="mono" href="#/rentals/${r.id}">${r.job_number || '—'}</a></td>
         <td><a href="#/rentals/${r.id}"><strong>${r.name}</strong></a></td>
         <td>${r.customer || ''}</td>
         <td class="nowrap">${r.start_date ? fmtDate(r.start_date) : '—'} → ${r.end_date ? fmtDate(r.end_date) : '—'}

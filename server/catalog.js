@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 export const CATALOG = {
   POWER: ['cable', 'adapter', 'splitter', 'distro'],
   LIGHTING: ['cable', 'light', 'unit'],
@@ -104,3 +106,15 @@ export function parseOutputs(value) {
 export const formatOutputs = (list, sep = ', ') => parseOutputs(list).map((o) => `${o.qty}× ${o.connector}`).join(sep);
 
 export const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '');
+
+/* ---------- "kind" hashing: groups identical items (same grouping the Stock overview and the hire
+   site both use — category, type, description, connectors, length), so a rental's quantity
+   requirements, the hire catalogue and the Stock overview can all refer to the same group by one key. ---------- */
+const normKind = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+export function kindKey(r) {
+  return crypto.createHash('sha1')
+    .update([r.category, r.type, normKind(r.name), normKind(r.male_connector), normKind(r.female_connector),
+      normKind(r.input_connector), r.outputs ?? '', r.length_m ?? ''].join('\u0001'))
+    .digest('hex').slice(0, 16);
+}

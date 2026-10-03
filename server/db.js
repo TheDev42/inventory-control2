@@ -42,6 +42,30 @@ CREATE TABLE IF NOT EXISTS rentals (
   completed_at TEXT
 );
 
+-- A kit requirement on a rental: "10 of this kind of item", so packing it just means scanning any 10
+-- matching barcodes rather than pre-picking specific ones. How much of it is already packed is computed
+-- from the rental's current items (rentals.js), not stored here. The category/type/connector/length
+-- columns are a snapshot of the kind requested (kind_key is a one-way hash, so they can't be recovered
+-- from it) — needed to print a hire sheet for a booking before anything has actually been packed.
+CREATE TABLE IF NOT EXISTS rental_requirements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rental_id INTEGER NOT NULL REFERENCES rentals(id) ON DELETE CASCADE,
+  kind_key TEXT NOT NULL,
+  label TEXT NOT NULL,
+  details TEXT,
+  qty INTEGER NOT NULL,
+  category TEXT,
+  type TEXT,
+  name TEXT,
+  male_connector TEXT,
+  female_connector TEXT,
+  input_connector TEXT,
+  outputs TEXT,
+  length_m REAL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rental_req_rental ON rental_requirements(rental_id);
+
 CREATE TABLE IF NOT EXISTS items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   barcode TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -128,7 +152,8 @@ CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 `);
 
 // Databases created by older versions are upgraded in place (columns are only ever added).
-function ensureColumn(table, col, ddl) {
+// Exported so other modules (e.g. hire.js, which owns its own tables) can extend them the same way.
+export function ensureColumn(table, col, ddl) {
   const have = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
   if (!have.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
 }
@@ -139,6 +164,35 @@ ensureColumn('items', 'location', 'TEXT'); // where a loose (not containered) it
 ensureColumn('items', 'cost', 'REAL'); // what it cost to buy, in GBP — admin info, not shown in the inventory list
 ensureColumn('containers', 'kind', "TEXT NOT NULL DEFAULT 'permanent'"); // permanent (always used) | temporary (one-off box)
 ensureColumn('rental_items', 'case_id', 'INTEGER REFERENCES containers(id) ON DELETE SET NULL'); // the case this line is packed in for the shipment
+ensureColumn('rentals', 'job_number', 'TEXT'); // JOB-0001, JOB-0002... one counter shared by every rental, however it was created
+
+// Rentals from before job numbers existed are backfilled once, in creation order, so the counter carries
+// on from history instead of leaving old rentals blank.
+{
+  const unnumbered = db.prepare('SELECT id FROM rentals WHERE job_number IS NULL ORDER BY id').all();
+  if (unnumbered.length) {
+    const maxExisting = db.prepare(
+      `SELECT MAX(CAST(SUBSTR(job_number, 5) AS INTEGER)) AS n FROM rentals WHERE job_number LIKE 'JOB-%'`
+    ).get().n || 0;
+    const setJob = db.prepare('UPDATE rentals SET job_number = ? WHERE id = ?');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      unnumbered.forEach((r, i) => setJob.run(`JOB-${String(maxExisting + i + 1).padStart(4, '0')}`, r.id));
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+}
+
+// The next JOB-#### for a new rental. Called from inside createRental()'s own transaction, so two
+// concurrent creates can never be handed the same number (node:sqlite's calls are synchronous, so there
+// is no interleaving within a single BEGIN IMMEDIATE ... COMMIT).
+export function nextJobNumber() {
+  const n = (db.prepare(`SELECT MAX(CAST(SUBSTR(job_number, 5) AS INTEGER)) AS n FROM rentals WHERE job_number LIKE 'JOB-%'`).get().n || 0) + 1;
+  return `JOB-${String(n).padStart(4, '0')}`;
+}
 
 const norm = (params) =>
   params.map((v) => (v === undefined ? null : typeof v === 'boolean' ? (v ? 1 : 0) : v));

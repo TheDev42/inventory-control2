@@ -141,6 +141,11 @@ app.delete('/api/rentals/:id/cases/:caseId', (req, res) => res.json(rentals.remo
 app.delete('/api/rentals/:id/items/:itemId', (req, res) => {
   res.json(rentals.removeFromRental(id(req), parseInt(req.params.itemId, 10)));
 });
+// Kit requirements: "N of this kind of item" instead of N specific barcodes — packing it is just
+// scanning any N matching items, so these endpoints never touch rental_items at all.
+app.post('/api/rentals/:id/requirements', (req, res) => res.status(201).json(rentals.addRequirement(id(req), req.body || {})));
+app.put('/api/rentals/:id/requirements/:reqId', (req, res) => res.json(rentals.updateRequirementQty(id(req), parseInt(req.params.reqId, 10), req.body?.qty)));
+app.delete('/api/rentals/:id/requirements/:reqId', (req, res) => res.json(rentals.removeRequirement(id(req), parseInt(req.params.reqId, 10))));
 // Two PDFs per rental: the internal hire sheet (barcodes, PAT, return boxes) and the client copy (quantities only).
 const sendRentalPdf = (mode, prefix) => (req, res) => {
   const { rental, items: rows } = rentals.rentalDetail(id(req));
@@ -211,12 +216,12 @@ app.put('/api/hire/meta/:scope/:key', (req, res) => {
   }
   res.json(hire.saveMeta(scope, key, patch));
 });
-app.get('/api/hire/requests', (req, res) => res.json(hire.listRequests({ status: req.query.status })));
+// Read-only history: a booking is a real active rental from the moment it is submitted, so there is
+// nothing left to accept, decline or turn into a rental here — just a link to the one it already made.
+app.get('/api/hire/requests', (_req, res) => res.json(hire.listRequests()));
 app.get('/api/hire/requests/:id', (req, res) => res.json(hire.requestDetail(id(req))));
-app.post('/api/hire/requests/:id/status', (req, res) => res.json(hire.setRequestStatus(id(req), req.body?.status)));
-// Opens a rental from the request (client, event and dates pre-filled; the kit still has to be picked or scanned on)
-app.post('/api/hire/requests/:id/rental', (req, res) => res.status(201).json(hire.createRentalFromRequest(id(req), rentals.createRental)));
-app.delete('/api/hire/requests/:id', (req, res) => res.json(hire.deleteRequest(id(req))));
+// Batch reorder / re-section for the public site: [{ scope, key, sortOrder, section? }, …]
+app.post('/api/hire/order', (req, res) => res.json(hire.reorder(req.body)));
 
 /* ---------- activity + backup ---------- */
 app.get('/api/events', (req, res) => {

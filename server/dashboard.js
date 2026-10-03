@@ -1,6 +1,6 @@
 import { all, get, today } from './db.js';
 import { itemSelect, patCase } from './items.js';
-import { parseOwner } from './catalog.js';
+import { parseOwner, kindKey } from './catalog.js';
 
 export function dashboard() {
   const t = today();
@@ -54,7 +54,6 @@ export function dashboard() {
 // (in stock). Sold items are no longer yours, so they are left out. Each group is labelled with its most common spelling.
 export function overview(ownerFilter) {
   const owner = ownerFilter ? parseOwner(ownerFilter) : null;
-  const norm = (v) => String(v ?? '').trim().toLowerCase();
   const rows = all(
     `SELECT category, type, name, male_connector, female_connector, input_connector, outputs, length_m, status, owner, cost
      FROM items WHERE status != 'sold' ${owner ? 'AND owner = ?' : ''} ORDER BY id`,
@@ -64,10 +63,10 @@ export function overview(ownerFilter) {
   let totalCost = 0;
   for (const r of rows) {
     totalCost += r.cost || 0;
-    const key = [r.category, r.type, norm(r.name), norm(r.male_connector), norm(r.female_connector), norm(r.input_connector), r.outputs ?? '', r.length_m ?? ''].join('\u0001');
+    const key = kindKey(r); // same hash hire.js and rentals.js use, so a requirement can reference one of these groups directly
     let g = groups.get(key);
     if (!g) {
-      g = { category: r.category, type: r.type, outputs: r.outputs, length_m: r.length_m, personal: 0, total: 0, available: 0, on_rental: 0, repair: 0, lost: 0, disassembled: 0, spellings: {} };
+      g = { key, category: r.category, type: r.type, outputs: r.outputs, length_m: r.length_m, personal: 0, total: 0, available: 0, on_rental: 0, repair: 0, lost: 0, disassembled: 0, spellings: {} };
       groups.set(key, g);
     }
     g.total++;

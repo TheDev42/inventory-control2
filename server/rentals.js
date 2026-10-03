@@ -1,5 +1,5 @@
-import { all, get, run, tx, nowIso, logEvent, HttpError } from './db.js';
-import { STATUS_LABEL } from './catalog.js';
+import { all, get, run, tx, nowIso, logEvent, HttpError, nextJobNumber } from './db.js';
+import { STATUS_LABEL, kindKey } from './catalog.js';
 import { itemSelect, getItem, returnItem } from './items.js';
 
 const str = (v) => {
@@ -69,18 +69,20 @@ export function rentalCases(rentalId) {
 export function rentalDetail(id) {
   const rental = getRental(id);
   if (!rental) throw new HttpError(404, 'Rental not found');
-  return { rental, items: rentalItems(id), cases: rentalCases(id) };
+  return { rental, items: rentalItems(id), cases: rentalCases(id), requirements: requirements(id) };
 }
 
 export function createRental(data) {
   const c = cleanRental(data);
-  const res = run(
-    `INSERT INTO rentals (name, customer, start_date, end_date, notes, status, created_at) VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-    c.name, c.customer, c.start_date, c.end_date, c.notes, nowIso()
-  );
-  const rental = getRental(Number(res.lastInsertRowid));
-  logEvent({ action: 'rental_created', rental, detail: `Rental "${rental.name}" created` });
-  return rental;
+  return tx(() => {
+    const res = run(
+      `INSERT INTO rentals (name, customer, start_date, end_date, notes, status, created_at, job_number) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
+      c.name, c.customer, c.start_date, c.end_date, c.notes, nowIso(), nextJobNumber()
+    );
+    const rental = getRental(Number(res.lastInsertRowid));
+    logEvent({ action: 'rental_created', rental, detail: `Rental ${rental.job_number} "${rental.name}" created` });
+    return rental;
+  });
 }
 
 export function updateRental(id, data) {
@@ -271,6 +273,76 @@ export function addItemsToRental(rentalId, itemIds, caseId = null) {
   }
   if (cid && addedIds.length) packItems(rentalId, addedIds, cid);
   return { added, warned, skipped, packed: cid ? addedIds.length : 0 };
+}
+
+/* ---------- kit requirements: "N of this kind of item" instead of N specific barcodes ----------
+   Fulfilment is never stored — it's read off the rental's current items every time, by matching each
+   one's kindKey() against the requirement's kind_key. So scanning (or picking) any matching barcode
+   onto the rental "fills" a requirement automatically; nothing here has to know about scanning at all. */
+
+// How many of the rental's current (still out) items match each kind
+function packedCountsByKind(rentalId) {
+  const counts = new Map();
+  for (const it of rentalItems(rentalId)) {
+    if (it.outcome !== null) continue; // returned/lost lines no longer count towards packing
+    const k = kindKey(it);
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  return counts;
+}
+
+export function requirements(rentalId) {
+  const rows = all('SELECT * FROM rental_requirements WHERE rental_id = ? ORDER BY id', rentalId);
+  if (!rows.length) return rows;
+  const packed = packedCountsByKind(rentalId);
+  return rows.map((r) => ({ ...r, fulfilled: Math.min(r.qty, packed.get(r.kind_key) || 0) }));
+}
+
+function cleanQty(qty) {
+  const n = Math.floor(Number(qty));
+  if (!Number.isInteger(n) || n < 1 || n > 999) throw new HttpError(400, 'Quantity must be between 1 and 999');
+  return n;
+}
+
+// `snapshot` carries the kind's display fields (category/type/connectors/length) alongside kindKey,
+// since the hash can't be turned back into them — needed so a hire sheet can be printed for this
+// requirement before anything has actually been packed onto the rental.
+export function addRequirement(rentalId, { kindKey: kind, label, details, qty, snapshot = {} }) {
+  const rental = activeRental(rentalId);
+  const k = str(kind);
+  const l = str(label);
+  if (!k || !l) throw new HttpError(400, 'Choose a kind of item');
+  const n = cleanQty(qty);
+  run(
+    `INSERT INTO rental_requirements (rental_id, kind_key, label, details, qty, category, type, name,
+       male_connector, female_connector, input_connector, outputs, length_m, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    rentalId, k, l, str(details), n,
+    str(snapshot.category), str(snapshot.type), str(snapshot.name),
+    str(snapshot.male_connector), str(snapshot.female_connector), str(snapshot.input_connector),
+    str(snapshot.outputs), snapshot.length_m ?? null, nowIso()
+  );
+  logEvent({ action: 'requirement_added', rental, detail: `${n} × ${l} added to "${rental.name}" as a kit requirement` });
+  return requirements(rentalId);
+}
+
+export function updateRequirementQty(rentalId, reqId, qty) {
+  const rental = activeRental(rentalId);
+  const row = get('SELECT * FROM rental_requirements WHERE id = ? AND rental_id = ?', reqId, rentalId);
+  if (!row) throw new HttpError(404, 'Requirement not found');
+  run('UPDATE rental_requirements SET qty = ? WHERE id = ?', cleanQty(qty), reqId);
+  logEvent({ action: 'requirement_updated', rental, detail: `"${row.label}" on "${rental.name}" changed to ${qty}` });
+  return requirements(rentalId);
+}
+
+export function removeRequirement(rentalId, reqId) {
+  const rental = getRental(rentalId); // allowed even when completed, same as tidying up any other line
+  if (!rental) throw new HttpError(404, 'Rental not found');
+  const row = get('SELECT * FROM rental_requirements WHERE id = ? AND rental_id = ?', reqId, rentalId);
+  if (!row) throw new HttpError(404, 'Requirement not found');
+  run('DELETE FROM rental_requirements WHERE id = ?', reqId);
+  logEvent({ action: 'requirement_removed', rental, detail: `"${row.label}" removed from "${rental.name}"` });
+  return requirements(rentalId);
 }
 
 // Undo a mistaken scan-out: takes the item off the rental as if it was never added

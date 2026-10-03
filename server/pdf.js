@@ -242,7 +242,8 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal',
   if (layout.note) doc.font('Helvetica-Bold').fontSize(8.5).text(layout.note, left, 50, { width: tableW, align: 'right', lineBreak: false });
 
   let y = 82;
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(16).text(rental.name, left, y, { width: tableW, lineBreak: false });
+  const title = rental.job_number ? `${rental.job_number}  ·  ${rental.name}` : rental.name;
+  doc.fillColor(INK).font('Helvetica-Bold').fontSize(16).text(title, left, y, { width: tableW, lineBreak: false });
   y += 24;
 
   const dates = rental.start_date || rental.end_date

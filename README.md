@@ -45,46 +45,59 @@ one to expose to the internet** — leave port 80 on your own network (or behind
 and HTTPS), because it can change and delete everything.
 
 What it serves, and nothing else: your sub-categories, the kinds of item in each, and how many are free.
-Barcodes, item ids, costs, owners, PAT records, rentals, containers and the activity log are not on it at
-all. The only thing a visitor can write is a hire request.
+Barcodes, item ids, costs, owners, PAT records, containers and the activity log are not on it at all —
+the only thing from the inventory it exposes is a job's quantities, once it exists as a booking. The only
+thing a visitor can write is a booking.
 
 ### What a customer does
 
-1. **Browse freely.** The front page lists every sub-category (Power cable, Lighting light, Sound audio…)
-   as a square tile, grouped by category. Opening one shows a grid of the kinds of item in it with how
-   many are available. Opening an item shows its about page: details, connectors, length, how many you
-   own, how many are free, and whatever wording you have written for it. None of this asks for anything.
+1. **Browse freely.** The front page lists every sub-category as a square tile, in whatever order you have
+   arranged them. Opening one shows the kinds of item in it — grouped under section headings like "16A" /
+   "32A" if you have set any, which stay pinned as the page scrolls — with how many are available. Opening
+   an item shows its about page: details, connectors, length, how many you own, how many are free, and
+   whatever wording you have written for it. A search box in the header and a **Stock list** page (every
+   kind of item, flat, for someone who already knows what they want) are there too. None of this asks for
+   anything.
 2. **Give their details.** The first time they try to put something in a **flight case** (the cart) they
    are asked for the hire dates, the client, the event, their name and their email — once, then it is
    remembered on their device and shown in a strip at the top. Nothing before that point needs it.
 3. **Fill a flight case.** Quantities are capped at what is actually free for their dates, and the flight
    case page re-checks that every time it is opened.
-4. **Send it.** That creates a request with a reference like `FC-K4R9TM`. Nothing is booked by it.
+4. **Book it.** This is not a request that waits for you to accept — it immediately creates a real, active
+   rental under the next **job number** (see below), with the flight case's lines on it as kit requirements
+   (see **Kit requirements** above: packing it is just scanning any matching barcodes, not specific ones).
+   The confirmation page shows the job number, a PDF hire sheet to download (the same client-PDF layout the
+   admin side uses), and asks them to get in touch to confirm the details — there is a ready-made "email us"
+   button when `HIRE_CONTACT_EMAIL` is set.
 
 ### Availability
 
 With no dates chosen, the numbers are simply what is in stock right now. Once dates are given, an item
 counts as free unless it is lost, disassembled, in repair or sold, or it is already on an active rental
-whose dates overlap. A rental with no end date — or one whose kit is still out past its end date —
-blocks every future window, because there is no telling when that kit is coming back. Pending hire
-requests do **not** hold stock: only a real rental does.
+whose dates overlap. A rental with no end date — or one whose kit is still out past its end date — blocks
+every future window, because there is no telling when that kit is coming back. Because a booking is a real
+rental from the moment it is made but names kinds and quantities rather than barcodes, unpacked quantities
+on *other* overlapping bookings are subtracted too — so two customers can't both be promised the same
+unscanned stock before either of them has actually been packed.
 
 ### Your side of it: *Hire site* in the sidebar
 
-- **Pictures & wording** lists every sub-category tile and every kind of item. For each one you can set a
-  square picture, the name shown on the site, and an about text. Pictures are cropped square from the
-  middle and shrunk in the browser before they are saved, so any photo works and the database stays small.
-  They live in the database, so the *Backup* button includes them.
-- **Requests** is the inbox. Each one shows the dates, client, event, who asked, their email and what they
-  asked for, with the quantities re-checked against what is free *now*. **Create a rental from this** opens
-  a rental with the client, event, dates and a list of what was asked for already filled in — the kit
-  itself still has to be picked or scanned onto it, because a request names kinds of item, not barcodes.
-  You can also mark a request accepted or declined, or delete it.
+- **Pictures & wording** is where you set the look and the arrangement:
+  - A **Logo** at the top, shown instead of the site's text name. Any size works — it is scaled to fit,
+    not cropped square.
+  - Every sub-category tile and every kind of item gets a square picture, a name and an about text.
+    Pictures are cropped square from the middle and shrunk in the browser before they are saved, so any
+    photo works and the database stays small. They live in the database, so the *Backup* button includes
+    them.
+  - **Reorder** switches the lists into Move up / Move down order, and (for item kinds) lets you type a
+    **section** such as "16A" or "32A" that groups it on the public page. Changes save as you make them.
+- **Bookings** is the history: dates, client, who booked it, what they asked for, and a link to the rental
+  it created. There is nothing to accept or decline — that already happened — this is just the record.
 
 The catalogue is your inventory, so there is no second list to maintain: add stock and it appears. The one
 thing to know is that a "kind of item" is a group of identical items — the same grouping the Stock
 overview uses (category, type, description, connectors, length) — so editing one of those fields in the
-inventory moves an item into a different group, which has its own picture and wording.
+inventory moves an item into a different group, which has its own picture, wording, order and section.
 
 ## Scanning
 
@@ -112,9 +125,10 @@ Barcodes are zero-padded numbers like `00001`, shared by items and containers (a
 - **Distros:** a Power type with one input connector and a list of outputs (e.g. 6 × 16A Cee, 2 × 13A). Shown as IN → OUT chips, printed as `In: … / Out: …` on the hire PDFs (identical distros combine on the client copy), and importable from CSV via `input_connector` and `outputs` (`6x 16A Cee (blue); 2x 13A (BS1363)`)
 - **Inventory:** search across every field, sort by any column, filters (including owner), CSV export (with an `owner` column). Tick items (or use *Select all N matching* to tick everything the current filters show) and *Set owner to…* to change many at once; ticks are kept while you page and filter. The Stock overview can also be limited to your own kit or the company's
 - **Bulk add:** scan or paste barcodes, generate a numbered range (e.g. 00101–00150), or import a CSV
-- **Rentals:** create, scan items in and out (or click **Add items** on a rental to search/filter the in-stock list, tick the ones you want and add them in one go), complete/reopen (**completing a rental marks every item that has not been returned as LOST**, with a note on the item; the confirmation tells you how many; a lost item can be found later and restored by scanning it in Return mode), and export two PDFs (upright A4) from the rental page. They are made to be told apart at a glance: the internal copy has a charcoal header, an amber **INTERNAL COPY** badge and a "staff use only" line, the client copy has a blue header and a green **CLIENT COPY** badge, and every page footer repeats the label. Add `?orientation=landscape` to a PDF link for the wide layout:
+- **Rentals:** every rental gets a sequential **job number** (`JOB-0001`, `JOB-0002`, …) the moment it is created, whether that's the admin's own **New rental** form or a booking from the hire site — one shared counter, shown on the Rentals list, the rental page and both PDFs. Create, scan items in and out (or click **Add items** on a rental to search/filter the in-stock list, tick the ones you want and add them in one go), complete/reopen (**completing a rental marks every item that has not been returned as LOST**, with a note on the item; the confirmation tells you how many; a lost item can be found later and restored by scanning it in Return mode), and export two PDFs (upright A4) from the rental page. They are made to be told apart at a glance: the internal copy has a charcoal header, an amber **INTERNAL COPY** badge and a "staff use only" line, the client copy has a blue header and a green **CLIENT COPY** badge, and every page footer repeats the label. Add `?orientation=landscape` to a PDF link for the wide layout:
   - **Internal PDF**: every item with its barcode, PAT date (N/A when it has none or needs none) and a return tick-box. Sorted by type, then male end, female end, length and description, so identical kit sits together rather than in barcode order
   - **Client PDF**: no barcodes, PAT dates or notes. Identical items are combined into one line with a quantity (4 × 10m 16A lead shows as "4"). Items only combine if type, description, both ends and length all match
+- **Kit requirements:** on a rental, **Add by quantity** lets you ask for "10 of this kind of item" (the same grouping the Stock overview uses) instead of picking 10 specific barcodes. Packing it is then just scanning any 10 matching items — the requirement's progress bar reads off what is already out on the rental, so there is nothing extra to keep in sync. A booking from the hire site arrives with these already filled in from what the customer asked for
 - **Containers:** own barcode, scan items in, scan the container to send its contents out. Two kinds: **permanent cases** (the ones you always use, kept in your inventory) and **temporary boxes** (one-offs for a job: just give it a name and it gets the next free barcode, `T0001`, `T0002`…). The Containers page has a tab for each; *Clear finished temporary boxes* deletes the ones that were used on a rental, are empty and are not on an active rental. Both kinds appear in every case drop-down
 - **Organising a shipment:** on a rental, the **Cases** panel lists the cases on it (add a permanent case or a temporary box, or make a new temporary box on the spot). Each line has a *Case* drop-down to pack it into a case; tick several lines and use *Assign to case* to do many at once, filter the lines by case, or choose *Pack into* in the **Add items** picker so new items go straight into a case. *Label* on a case prints its 4″ × 6″ label with the contents (from what is packed into it), client, event and box number ("2 of 3") already filled in from the rental
 - **Case labels:** *Print label* on a container page makes a 4″ × 6″ label in the style of the old hand-made ones: FaderUp logo and date across the top, Client | Event | Box No., a Contents box (filled from what is in the case, counted like `8 X 16A to 13A 4 way`, and editable), and a Code 128 barcode of the case's barcode so it can be scanned like any other. If everything from the case is out on one rental, client, event and date are pre-filled from it. *Open to print* shows the PDF (print it at actual size / 100% on the label printer); *Download PDF* saves it. The logo is `server/assets/FaderUp-Logo-black.png` (black on white; replace the file or set `LABEL_LOGO_PATH` to change it)

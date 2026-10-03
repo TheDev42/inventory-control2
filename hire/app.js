@@ -16,6 +16,10 @@ const html = (strings, ...vals) => new Safe(strings.reduce((out, s, i) => out + 
 const mount = (el, tpl) => { if (el) el.innerHTML = tpl instanceof Safe ? tpl.s : esc(tpl); };
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+function debounce(fn, ms) {
+  let t;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
 
 const store = {
   get(key, fallback) {
@@ -215,19 +219,12 @@ const view = () => $('#main');
 
 async function homePage() {
   const data = await api('GET', '/api/catalogue' + qs(dateWindow()));
-  const groups = [];
-  for (const s of data.subcategories) {
-    let g = groups.find((x) => x.category === s.category);
-    if (!g) groups.push((g = { category: s.category, subs: [] }));
-    g.subs.push(s);
-  }
-  const cap = (s) => s.charAt(0) + s.slice(1).toLowerCase();
 
   mount(view(), html`<div class="wrap">
     <div class="hero">
       <div>
         <h1>What do you need?</h1>
-        <p>Pick a category to see what we have and how many are free. Add what you want to a flight case and send it over, and we will come back to you to confirm.</p>
+        <p>Pick a category to see what we have and how many are free. Add what you want to a flight case and send it over — it reserves the kit straight away, and we will ask you to confirm the details are right.</p>
       </div>
       ${bookingComplete() ? '' : html`<button class="btn" type="button" id="set-dates">Set your hire dates</button>`}
     </div>
@@ -235,24 +232,44 @@ async function homePage() {
       ? html`<p class="muted small">Quantities below are what is free for <b>${fmtRange(state.booking.start, state.booking.end)}</b>.</p>`
       : html`<p class="muted small">Quantities below are what is in stock right now. Set your hire dates to see what is free for them.</p>`}
     ${data.subcategories.length
-      ? groups.map((g) => html`
-        <div class="section-title"><h2>${cap(g.category)}</h2><span class="rule"></span></div>
-        <div class="grid">${g.subs.map((s) => html`<a class="tile" href="#/c/${s.slug}">
+      ? html`<div class="grid">${data.subcategories.map((s) => html`<a class="tile" href="#/c/${s.slug}">
           ${picture('subcategory', s.slug, s.image, s.label)}
           <div class="tile-body">
             <div class="name">${s.label}</div>
             <div class="det">${plural(s.kinds, 'kind')} · ${plural(s.total, 'item')}</div>
             <div class="foot">${availPill(s.available, data.dated)}</div>
-          </div></a>`)}</div>`)
+          </div></a>`)}</div>`
       : html`<div class="empty">Nothing is listed for hire yet. Please check back soon.</div>`}
   </div>`);
 
   $('#set-dates')?.addEventListener('click', () => openBookingModal({ onDone: () => route() }));
 }
 
+// Items keep the order the server gave them (sort_order, arranged from the admin). Grouping by
+// section only clusters consecutive same-section runs — it never re-sorts — so an admin who wants
+// "16A" kit together just has to arrange it together, same as any other ordering.
+function groupBySection(types) {
+  const sections = [];
+  for (const t of types) {
+    const last = sections[sections.length - 1];
+    if (last && last.name === (t.section || null)) last.items.push(t);
+    else sections.push({ name: t.section || null, items: [t] });
+  }
+  return sections;
+}
+
+const typeTile = (t, dated) => html`<a class="tile" href="#/i/${t.key}">
+  ${picture('type', t.key, t.image, t.label)}
+  <div class="tile-body">
+    <div class="name">${t.label}</div>
+    ${t.details ? html`<div class="det">${t.details}</div>` : ''}
+    <div class="foot">${availPill(t.available, dated)}<span class="muted small">${t.total} owned</span></div>
+  </div></a>`;
+
 async function subcategoryPage(slug) {
   const data = await api('GET', `/api/subcategories/${encodeURIComponent(slug)}` + qs(dateWindow()));
   const s = data.subcategory;
+  const sections = groupBySection(data.types);
   mount(view(), html`<div class="wrap">
     <div class="crumbs"><a href="#/">All categories</a><span aria-hidden="true">/</span><span>${s.label}</span></div>
     <div class="page-head">
@@ -260,13 +277,12 @@ async function subcategoryPage(slug) {
       <div class="sub">${plural(data.types.length, 'kind of item')} · ${s.available} of ${s.total} ${data.dated ? 'free for your dates' : 'in stock now'}</div>
       ${s.about ? html`<p class="about muted">${s.about}</p>` : ''}
     </div>
-    <div class="grid">${data.types.map((t) => html`<a class="tile" href="#/i/${t.key}">
-      ${picture('type', t.key, t.image, t.label)}
-      <div class="tile-body">
-        <div class="name">${t.label}</div>
-        ${t.details ? html`<div class="det">${t.details}</div>` : ''}
-        <div class="foot">${availPill(t.available, data.dated)}<span class="muted small">${t.total} owned</span></div>
-      </div></a>`)}</div>
+    ${sections.length > 1 || sections[0]?.name
+      ? sections.map((sec) => html`<div class="kit-section">
+          ${sec.name ? html`<div class="kit-section-head">${sec.name}</div>` : ''}
+          <div class="grid">${sec.items.map((t) => typeTile(t, data.dated))}</div>
+        </div>`)
+      : html`<div class="grid">${data.types.map((t) => typeTile(t, data.dated))}</div>`}
   </div>`);
 }
 
@@ -415,8 +431,8 @@ async function casePage() {
             <p class="small"><button class="btn ghost small" type="button" id="case-edit">Change details</button></p>
             <label class="field"><span>Anything else we should know? <span class="hint muted">optional</span></span><textarea id="case-notes" maxlength="2000" placeholder="Delivery, collection times, cable runs…">${state.notes}</textarea></label>
             ${short.length ? html`<div class="notice bad small">Some lines are more than we have free. Lower them before sending.</div>` : ''}
-            <button class="btn primary" type="button" id="send-btn" ${short.length ? raw('disabled') : ''}>Send this request</button>
-            <p class="muted small">This asks us to hold the kit. Nothing is booked until we reply to ${b.email}.</p>
+            <button class="btn primary" type="button" id="send-btn" ${short.length ? raw('disabled') : ''}>Book this kit</button>
+            <p class="muted small">This reserves the kit straight away. You'll get a reference and a hire sheet to download — please get in touch afterwards to confirm everything is correct.</p>
             <div class="form-error" id="send-error" role="alert"></div>
           </div>
         </div>
@@ -463,7 +479,7 @@ async function casePage() {
     btn.disabled = true;
     $('#send-error').textContent = '';
     try {
-      const { reference } = await api('POST', '/api/requests', {
+      const { reference, jobNumber } = await api('POST', '/api/requests', {
         client: b.client, event: b.event, renter_name: b.name, renter_email: b.email,
         start_date: b.start, end_date: b.end, notes: state.notes,
         lines: state.flightCase.map((l) => ({ key: l.key, qty: l.qty })),
@@ -471,7 +487,7 @@ async function casePage() {
       state.flightCase = [];
       state.notes = '';
       saveCase();
-      showSent(reference);
+      showSent(jobNumber, reference);
     } catch (err) {
       btn.disabled = false;
       $('#send-error').textContent = err.message + (err.short?.length ? ` (${err.short.map((s) => `${s.label}: ${s.available} free, ${s.wanted} asked for`).join('; ')})` : '');
@@ -480,19 +496,93 @@ async function casePage() {
   });
 }
 
-function showSent(reference) {
+// `reference` is only ever used here, as the unguessable token the PDF download needs — it's never
+// shown. The job number (sequential) is what's displayed, and walking it must not expose someone
+// else's hire sheet, which is why the PDF route is keyed by reference instead.
+function showSent(jobNumber, reference) {
   const b = state.booking;
+  const mailBody = encodeURIComponent(
+    `Hi,\n\nPlease can you confirm everything for ${jobNumber} is correct:\n\nClient: ${b.client}\nEvent: ${b.event}\nDates: ${fmtRange(b.start, b.end)}\n\nThanks,\n${b.name}`
+  );
+  const contact = state.meta.contactEmail
+    ? html`<a class="btn primary" href="mailto:${state.meta.contactEmail}?subject=${encodeURIComponent(`Please confirm ${jobNumber}`)}&body=${mailBody}">Email us to confirm</a>`
+    : state.meta.contactPhone ? html`<a class="btn primary" href="tel:${state.meta.contactPhone.replace(/\s+/g, '')}">Call us to confirm</a>` : '';
   mount(view(), html`<div class="wrap">
     <div class="hero">
       <div>
-        <h1>Request sent</h1>
-        <p>Thanks ${b.name}. Your reference is <b>${reference}</b>. We will go through it and get back to you at ${b.email}.</p>
-        <p class="muted small">Nothing is booked until we confirm it.</p>
+        <h1>Booked — <span class="mono">${jobNumber}</span></h1>
+        <p>Thanks ${b.name}. This has reserved the kit for ${fmtRange(b.start, b.end)}, but please get in touch to confirm everything is correct before the day${state.meta.contactEmail || state.meta.contactPhone ? '' : ` — we'll follow up at ${b.email}`}.</p>
       </div>
-      <a class="btn" href="#/">Back to browsing</a>
+      <div class="actions">
+        ${contact}
+        <a class="btn" href="/api/requests/${encodeURIComponent(reference)}/pdf">Download hire sheet (PDF)</a>
+      </div>
     </div>
+    <p class="muted small">Quote <b>${jobNumber}</b> if you call or write in. <a href="#/">Back to browsing</a>.</p>
   </div>`);
   window.scrollTo(0, 0);
+}
+
+/* ---------- search ---------- */
+// Filters the catalogue already fetched for browsing — there's nothing here that needs its own
+// endpoint, since a search is just a different view over the same subcategories and item kinds.
+async function searchPage(q) {
+  $('#top-search-input').value = q;
+  const data = await api('GET', '/api/catalogue' + qs(dateWindow()));
+  const term = q.trim().toLowerCase();
+  const terms = term.split(/\s+/).filter(Boolean);
+  const hay = (parts) => parts.filter(Boolean).join(' ').toLowerCase();
+  const matchedSubs = data.subcategories.filter((s) => terms.every((t) => hay([s.label, s.about]).includes(t)));
+  const matchedTypes = data.types.filter((t) => terms.every((w) => hay([t.label, t.details, t.about, t.category, t.type]).includes(w)));
+
+  mount(view(), html`<div class="wrap">
+    <div class="page-head">
+      <h1>Search</h1>
+      <div class="sub">${term ? html`Results for “${q}”` : 'Type something into the search box above.'}</div>
+    </div>
+    ${!term
+      ? ''
+      : !matchedSubs.length && !matchedTypes.length
+      ? html`<div class="empty">Nothing matches “${q}”.</div>`
+      : html`
+        ${matchedSubs.length ? html`<div class="section-title"><h2>Categories</h2><span class="rule"></span></div>
+          <div class="grid">${matchedSubs.map((s) => html`<a class="tile" href="#/c/${s.slug}">
+            ${picture('subcategory', s.slug, s.image, s.label)}
+            <div class="tile-body"><div class="name">${s.label}</div>
+              <div class="det">${plural(s.kinds, 'kind')} · ${plural(s.total, 'item')}</div>
+              <div class="foot">${availPill(s.available, data.dated)}</div></div></a>`)}</div>` : ''}
+        ${matchedTypes.length ? html`<div class="section-title"><h2>Items</h2><span class="rule"></span></div>
+          <div class="grid">${matchedTypes.map((t) => typeTile(t, data.dated))}</div>` : ''}`}
+  </div>`);
+}
+
+/* ---------- stock list: everything, flat, for people who already know what they want ---------- */
+async function stockPage(q = '') {
+  const data = await api('GET', '/api/catalogue' + qs(dateWindow()));
+  const term = q.trim().toLowerCase();
+  const terms = term.split(/\s+/).filter(Boolean);
+  const hay = (t) => [t.label, t.details, t.category, t.type].filter(Boolean).join(' ').toLowerCase();
+  const shown = data.types.filter((t) => terms.every((w) => hay(t).includes(w)));
+  const cap = (s) => s.charAt(0) + s.slice(1).toLowerCase();
+
+  mount(view(), html`<div class="wrap">
+    <div class="page-head">
+      <h1>Everything we have</h1>
+      <div class="sub">${plural(data.types.length, 'kind of item')} across every category. ${data.dated ? 'Showing what is free for your dates.' : 'Set your hire dates to see what is free for them.'}</div>
+    </div>
+    <div class="toolbar"><input type="search" id="stock-q" value="${q}" placeholder="Filter by name, type or connector…" aria-label="Filter the stock list"></div>
+    ${shown.length ? html`<div class="stock-table">${shown.map((t) => html`<a class="stock-row" href="#/i/${t.key}">
+        ${picture('type', t.key, t.image, t.label, 'mini')}
+        <div><div class="nm">${t.label}</div><div class="det">${cap(t.category)} · ${t.type}${t.details ? ` · ${t.details}` : ''}</div></div>
+        ${availPill(t.available, data.dated)}
+      </a>`)}</div>` : html`<div class="empty">Nothing matches.</div>`}
+  </div>`);
+
+  $('#stock-q').addEventListener('input', debounce((e) => {
+    const next = e.target.value;
+    history.replaceState(null, '', `#/stock${qs({ q: next })}`);
+    stockPage(next);
+  }, 220));
 }
 
 /* ---------- routing ---------- */
@@ -501,26 +591,32 @@ const ROUTES = [
   [/^\/c\/([a-z0-9-]{1,80})$/, (m) => subcategoryPage(m[1])],
   [/^\/i\/([a-f0-9]{16})$/, (m) => itemPage(m[1])],
   [/^\/case$/, () => casePage()],
+  [/^\/search$/, (_m, query) => searchPage(query.get('q') || '')],
+  [/^\/stock$/, (_m, query) => stockPage(query.get('q') || '')],
 ];
 
 let token = 0;
 async function route() {
   const mine = ++token;
   const hash = location.hash.slice(1);
+  const qIndex = hash.indexOf('?');
+  const rawPath = qIndex >= 0 ? hash.slice(0, qIndex) : hash;
+  const query = new URLSearchParams(qIndex >= 0 ? hash.slice(qIndex + 1) : '');
   let path;
-  try { path = decodeURIComponent(hash) || '/'; } catch { path = hash || '/'; } // a hand-mangled URL must not blank the page
+  try { path = decodeURIComponent(rawPath) || '/'; } catch { path = rawPath || '/'; } // a hand-mangled URL must not blank the page
   const match = ROUTES.reduce((found, [re, fn]) => found || (re.test(path) ? [path.match(re), fn] : null), null);
   $$('.top-nav > a').forEach((a) => {
     if (a.getAttribute('href') === '#' + path) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
+  if (path !== '/search') $('#top-search-input').value = '';
 
   if (!match) {
     mount(view(), html`<div class="wrap"><div class="empty">That page does not exist. <a href="#/">Start again</a>.</div></div>`);
     return;
   }
   try {
-    await match[1](match[0]);
+    await match[1](match[0], query);
   } catch (err) {
     if (mine !== token) return;
     mount(view(), html`<div class="wrap"><div class="empty">${err.message === 'Not found' ? 'We could not find that.' : err.message} <a href="#/">Start again</a>.</div></div>`);
@@ -540,6 +636,25 @@ async function boot() {
   document.title = `${state.meta.company} hire`;
   mount($('#foot-inner'), html`<span>${state.meta.company} dry hire</span>
     <span>${[state.meta.contactEmail && html`<a href="mailto:${state.meta.contactEmail}">${state.meta.contactEmail}</a>`, state.meta.contactPhone].filter(Boolean).map((v, i) => html`${i ? ' · ' : ''}${v}`)}</span>`);
+
+  // A logo, if one has been set, replaces the text wordmark but keeps the same link and alt text.
+  try {
+    const check = await fetch('/img/site/logo', { method: 'GET' });
+    if (check.ok) {
+      const logo = $('#brand-logo');
+      logo.src = '/img/site/logo';
+      logo.alt = state.meta.company;
+      logo.hidden = false;
+      $('#brand-mark').hidden = true;
+      $('#brand-name').hidden = true;
+    }
+  } catch { /* no logo: the text wordmark stays */ }
+
+  $('#top-search').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = $('#top-search-input').value.trim();
+    location.hash = `#/search${qs({ q })}`;
+  });
 
   // Dates in the past are no use: if the saved ones have expired, ask again on the next add.
   if (state.booking.end && state.meta.today && state.booking.end < state.meta.today) {

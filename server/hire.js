@@ -4,11 +4,13 @@
    identical items (the same grouping the Stock overview uses). The only things stored are the
    pictures and about-text an admin adds, and the hire requests customers send in. */
 import crypto from 'node:crypto';
-import { all, get, run, tx, db, nowIso, today, logEvent, HttpError } from './db.js';
-import { cap, formatOutputs } from './catalog.js';
+import { all, get, run, tx, db, nowIso, today, logEvent, HttpError, ensureColumn } from './db.js';
+import { cap, formatOutputs, kindKey } from './catalog.js';
+import { createRental as createRentalRow } from './rentals.js';
 
 db.exec(`
--- Picture, about text and optional display name for a sub-category ('subcategory') or an item type ('type').
+-- Picture, about text, display order and (for an item type) a section label like "16A" or "32A", for a
+-- sub-category ('subcategory'), an item type ('type'), or the site itself ('site', key 'logo').
 CREATE TABLE IF NOT EXISTS hire_meta (
   scope TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -46,25 +48,29 @@ CREATE TABLE IF NOT EXISTS hire_request_lines (
 );
 CREATE INDEX IF NOT EXISTS idx_hire_lines_req ON hire_request_lines(request_id);
 `);
+ensureColumn('hire_meta', 'section', 'TEXT'); // only meaningful for scope='type': groups it under a heading within its sub-category
+ensureColumn('hire_meta', 'sort_order', 'INTEGER'); // manual display order; NULL sorts after everything that has been arranged
 
 export const IMAGE_MIMES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
-export const SCOPES = new Set(['subcategory', 'type']);
+export const SCOPES = new Set(['subcategory', 'type', 'site']);
 
-const norm = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s ?? ''));
+const cmpStr = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'en', { numeric: true, sensitivity: 'base' });
+
+// A manual sort_order (set from the admin's Reorder control) wins; anything not yet arranged (NULL)
+// sorts after everything that has been, falling back to `fallback` so new stock lands somewhere sensible.
+const bySortOrder = (fallback) => (a, b) => {
+  if (a.sort_order == null && b.sort_order == null) return fallback(a, b);
+  if (a.sort_order == null) return 1;
+  if (b.sort_order == null) return -1;
+  return a.sort_order - b.sort_order || fallback(a, b);
+};
 
 /* ---------- keys ---------- */
 
 // A sub-category is a category/type pair: "power-cable", "lighting-light".
 export const subSlug = (category, type) =>
   `${String(category).toLowerCase()}-${String(type).toLowerCase()}`.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-
-// Short, stable id for a group of identical items. Built from the same fields the Stock overview groups
-// on, so it survives restarts and rebuilds, but it changes if that kit's details are edited.
-const typeKey = (r) =>
-  crypto.createHash('sha1')
-    .update([r.category, r.type, norm(r.name), norm(r.male_connector), norm(r.female_connector), norm(r.input_connector), r.outputs ?? '', r.length_m ?? ''].join('\u0001'))
-    .digest('hex').slice(0, 16);
 
 /* ---------- availability ---------- */
 
@@ -95,6 +101,41 @@ function stockRows(startDate, endDate) {
   );
 }
 
+// Outstanding (not-yet-packed) quantity on OTHER active rentals whose dates overlap the window being
+// checked, per kind. A hire request becomes a real active rental the moment it is submitted, but it
+// names kinds and quantities, not barcodes — until someone actually packs it, nothing else would stop
+// a second booking being offered the same stock unless this is subtracted too. Only matters when dates
+// are given: an unpacked future booking shouldn't affect "what's in stock right now" browsing.
+function reservedByKind(startDate, endDate) {
+  const reserved = new Map();
+  const reqRows = all(
+    `SELECT rq.rental_id, rq.kind_key, rq.qty
+     FROM rental_requirements rq JOIN rentals r ON r.id = rq.rental_id
+     WHERE r.status = 'active' AND (r.start_date IS NULL OR r.start_date <= ?) AND (r.end_date IS NULL OR r.end_date >= ?)`,
+    endDate, startDate
+  );
+  if (!reqRows.length) return reserved;
+  const packedRows = all(
+    `SELECT ri.rental_id, i.category, i.type, i.name, i.male_connector, i.female_connector, i.input_connector, i.outputs, i.length_m
+     FROM rental_items ri JOIN items i ON i.id = ri.item_id JOIN rentals r ON r.id = ri.rental_id
+     WHERE ri.outcome IS NULL AND r.status = 'active' AND (r.start_date IS NULL OR r.start_date <= ?) AND (r.end_date IS NULL OR r.end_date >= ?)`,
+    endDate, startDate
+  );
+  const packedByRental = new Map(); // rental_id -> Map<kind_key, count>
+  for (const row of packedRows) {
+    let m = packedByRental.get(row.rental_id);
+    if (!m) packedByRental.set(row.rental_id, (m = new Map()));
+    const k = kindKey(row);
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+  for (const rq of reqRows) {
+    const packed = packedByRental.get(rq.rental_id)?.get(rq.kind_key) || 0;
+    const outstanding = Math.max(0, rq.qty - packed);
+    if (outstanding) reserved.set(rq.kind_key, (reserved.get(rq.kind_key) || 0) + outstanding);
+  }
+  return reserved;
+}
+
 /* ---------- the catalogue ---------- */
 
 // One line describing the kit, for the grids, the request and the admin list
@@ -112,9 +153,10 @@ export function detailLine(g) {
 
 // Every item type with stock, grouped like the Stock overview and labelled with its commonest spelling.
 function groupTypes(startDate, endDate) {
+  const dated = isDate(startDate) && isDate(endDate);
   const groups = new Map();
   for (const r of stockRows(startDate, endDate)) {
-    const key = typeKey(r);
+    const key = kindKey(r);
     let g = groups.get(key);
     if (!g) {
       g = {
@@ -130,8 +172,12 @@ function groupTypes(startDate, endDate) {
       if (v) { g.spellings[f] ??= new Map(); g.spellings[f].set(v, (g.spellings[f].get(v) || 0) + 1); }
     }
   }
+  if (dated) {
+    const reserved = reservedByKind(startDate, endDate);
+    for (const g of groups.values()) g.available = Math.max(0, g.available - (reserved.get(g.key) || 0));
+  }
   const commonest = (m) => (m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : null);
-  const metaByKey = new Map(all(`SELECT key, label, about, image IS NOT NULL AS has_image FROM hire_meta WHERE scope = 'type'`).map((m) => [m.key, m]));
+  const metaByKey = new Map(all(`SELECT key, label, about, section, sort_order, image IS NOT NULL AS has_image FROM hire_meta WHERE scope = 'type'`).map((m) => [m.key, m]));
   const list = [...groups.values()].map(({ spellings, ...g }) => {
     const out = {
       ...g,
@@ -143,19 +189,20 @@ function groupTypes(startDate, endDate) {
     const meta = metaByKey.get(g.key);
     out.label = (meta?.label || out.name || `${cap(g.category)} ${g.type}`).trim();
     out.about = meta?.about || null;
+    out.section = meta?.section || null;
+    out.sort_order = meta?.sort_order ?? null;
     out.image = !!meta?.has_image;
     out.details = detailLine(out);
     return out;
   });
-  const cmp = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'en', { numeric: true, sensitivity: 'base' });
-  list.sort((a, b) => cmp(a.label, b.label) || (a.length_m ?? 0) - (b.length_m ?? 0));
+  list.sort(bySortOrder((a, b) => cmpStr(a.label, b.label) || (a.length_m ?? 0) - (b.length_m ?? 0)));
   return list;
 }
 
 // The sub-category tiles on the hire home page.
 export function catalogue({ start, end } = {}) {
   const types = groupTypes(start, end);
-  const metaBySlug = new Map(all(`SELECT key, label, about, image IS NOT NULL AS has_image FROM hire_meta WHERE scope = 'subcategory'`).map((m) => [m.key, m]));
+  const metaBySlug = new Map(all(`SELECT key, label, about, sort_order, image IS NOT NULL AS has_image FROM hire_meta WHERE scope = 'subcategory'`).map((m) => [m.key, m]));
   const subs = new Map();
   for (const t of types) {
     let s = subs.get(t.subcategory);
@@ -164,7 +211,7 @@ export function catalogue({ start, end } = {}) {
       s = {
         slug: t.subcategory, category: t.category, type: t.type,
         label: (meta?.label || `${cap(t.category)} ${t.type}`).trim(),
-        about: meta?.about || null, image: !!meta?.has_image,
+        about: meta?.about || null, image: !!meta?.has_image, sort_order: meta?.sort_order ?? null,
         kinds: 0, total: 0, available: 0,
       };
       subs.set(t.subcategory, s);
@@ -175,7 +222,7 @@ export function catalogue({ start, end } = {}) {
   }
   const order = ['POWER', 'LIGHTING', 'SOUND'];
   const rank = (c) => { const i = order.indexOf(c); return i < 0 ? order.length : i; };
-  const list = [...subs.values()].sort((a, b) => rank(a.category) - rank(b.category) || a.label.localeCompare(b.label));
+  const list = [...subs.values()].sort(bySortOrder((a, b) => rank(a.category) - rank(b.category) || cmpStr(a.label, b.label)));
   return { subcategories: list, types, dated: isDate(start) && isDate(end), today: today() };
 }
 
@@ -196,13 +243,39 @@ export function typePage(key, { start, end } = {}) {
 // Everything the admin "Hire site" page needs: each tile and item type with whatever has been filled in for it.
 export function adminCatalogue() {
   const c = catalogue();
-  const meta = all('SELECT scope, key, label, about, image IS NOT NULL AS has_image, updated_at FROM hire_meta');
+  const meta = all('SELECT scope, key, label, about, section, sort_order, image IS NOT NULL AS has_image, updated_at FROM hire_meta');
   const bySub = new Map(meta.filter((m) => m.scope === 'subcategory').map((m) => [m.key, m]));
   const byType = new Map(meta.filter((m) => m.scope === 'type').map((m) => [m.key, m]));
   return {
     subcategories: c.subcategories.map((s) => ({ ...s, custom_label: bySub.get(s.slug)?.label || null, updated_at: bySub.get(s.slug)?.updated_at || null })),
     types: c.types.map((t) => ({ ...t, custom_label: byType.get(t.key)?.label || null, updated_at: byType.get(t.key)?.updated_at || null })),
   };
+}
+
+// Batch reorder / re-section: [{ scope, key, sortOrder, section? }, …], all under one transaction.
+// `section` is only applied when the entry is for scope='type' and the field is present.
+export function reorder(entries) {
+  if (!Array.isArray(entries) || !entries.length) throw new HttpError(400, 'Nothing to reorder');
+  if (entries.length > 2000) throw new HttpError(400, 'Too many rows at once');
+  const now = nowIso();
+  tx(() => {
+    for (const e of entries) {
+      const scope = e?.scope;
+      const key = e?.key;
+      if (!SCOPES.has(scope) || !/^[a-z0-9-]{1,80}$/.test(String(key))) throw new HttpError(400, 'Invalid row');
+      const sortOrder = Number.isInteger(e?.sortOrder) ? e.sortOrder : null;
+      const section = scope === 'type' && e?.section !== undefined ? (String(e.section).trim().slice(0, 60) || null) : undefined;
+      const existing = get('SELECT * FROM hire_meta WHERE scope = ? AND key = ?', scope, key);
+      run(
+        `INSERT INTO hire_meta (scope, key, label, about, section, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (scope, key) DO UPDATE SET sort_order=excluded.sort_order,
+           section=CASE WHEN ? THEN excluded.section ELSE hire_meta.section END, updated_at=excluded.updated_at`,
+        scope, key, existing?.label ?? null, existing?.about ?? null, section ?? existing?.section ?? null, sortOrder, now,
+        section !== undefined ? 1 : 0
+      );
+    }
+  });
+  return adminCatalogue();
 }
 
 /* ---------- pictures and about text (written from the admin app) ---------- */
@@ -257,6 +330,10 @@ const text = (v, max, what) => {
 // Deliberately lenient: this only has to stop obvious nonsense, the reply itself proves the address works.
 const EMAIL = /^[^\s@,;:<>"']{1,64}@[^\s@,;:<>"']{1,128}\.[a-z]{2,24}$/i;
 
+// A hire request becomes a real, active rental the moment it is validated — there is no separate
+// acceptance step. Its `reference` stays as the unguessable lookup token for the PDF download link
+// (sequential job numbers must not be walkable to pull someone else's hire sheet); the number shown to
+// the customer everywhere else is the rental's own `job_number`.
 export function createRequest(body = {}) {
   const client = text(body.client, 120, 'Client');
   const event = text(body.event, 120, 'Event');
@@ -282,7 +359,12 @@ export function createRequest(body = {}) {
     const qty = Math.floor(Number(l?.qty));
     if (!Number.isInteger(qty) || qty < 1 || qty > 999) throw new HttpError(400, `Invalid quantity for ${t.label}`);
     if (qty > t.available) short.push({ key: t.key, label: t.label, wanted: qty, available: t.available });
-    clean.push({ key: t.key, label: t.label, details: t.details, qty });
+    clean.push({
+      key: t.key, label: t.label, details: t.details, qty,
+      category: t.category, type: t.type, name: t.name,
+      male_connector: t.male_connector, female_connector: t.female_connector,
+      input_connector: t.input_connector, outputs: t.outputs, length_m: t.length_m,
+    });
   }
   if (short.length) {
     const err = new HttpError(409, 'Some of it is no longer available for those dates');
@@ -293,35 +375,58 @@ export function createRequest(body = {}) {
   return tx(() => {
     let reference = makeReference();
     for (let i = 0; i < 5 && get('SELECT 1 FROM hire_requests WHERE reference = ?', reference); i++) reference = makeReference();
+
+    const totalQty = clean.reduce((s, l) => s + l.qty, 0);
+    const rental = createRentalRow({
+      name: event,
+      customer: client,
+      start_date: start,
+      end_date: end,
+      notes: [
+        `From the hire site, booking reference ${reference}`,
+        `Booked by ${renterName} <${renterEmail}>`,
+        '',
+        'Asked for:',
+        ...clean.map((l) => `${l.qty} x ${l.label}${l.details ? ` (${l.details})` : ''}`),
+        ...(notes ? ['', `Their notes: ${notes}`] : []),
+      ].join('\n'),
+    });
+    for (const l of clean) {
+      run(
+        `INSERT INTO rental_requirements (rental_id, kind_key, label, details, qty, category, type, name,
+           male_connector, female_connector, input_connector, outputs, length_m, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        rental.id, l.key, l.label, l.details, l.qty, l.category, l.type, l.name,
+        l.male_connector, l.female_connector, l.input_connector, l.outputs, l.length_m ?? null, nowIso()
+      );
+    }
+
     const res = run(
-      `INSERT INTO hire_requests (reference, client, event, renter_name, renter_email, start_date, end_date, notes, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)`,
-      reference, client, event, renterName, renterEmail, start, end, notes, nowIso()
+      `INSERT INTO hire_requests (reference, client, event, renter_name, renter_email, start_date, end_date, notes, status, rental_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?)`,
+      reference, client, event, renterName, renterEmail, start, end, notes, rental.id, nowIso()
     );
     const requestId = Number(res.lastInsertRowid);
     for (const l of clean) {
       run('INSERT INTO hire_request_lines (request_id, type_key, label, details, qty) VALUES (?, ?, ?, ?, ?)', requestId, l.key, l.label, l.details, l.qty);
     }
-    logEvent({ action: 'hire_request', detail: `Hire request ${reference} from ${renterName} (${client}, ${event}): ${clean.reduce((s, l) => s + l.qty, 0)} items` });
-    return { reference, id: requestId };
+    logEvent({ action: 'hire_request', rental, detail: `Hire booking from ${renterName} (${client}, ${event}): ${totalQty} item(s), now ${rental.job_number}` });
+    return { reference, id: requestId, jobNumber: rental.job_number, rentalId: rental.id };
   });
 }
 
-export function listRequests({ status } = {}) {
-  const filtered = ['new', 'accepted', 'declined'].includes(status);
+export function listRequests() {
   return all(
     `SELECT q.*, (SELECT SUM(qty) FROM hire_request_lines l WHERE l.request_id = q.id) AS item_count,
        (SELECT COUNT(*) FROM hire_request_lines l WHERE l.request_id = q.id) AS line_count,
-       r.name AS rental_name
+       r.name AS rental_name, r.job_number
      FROM hire_requests q LEFT JOIN rentals r ON r.id = q.rental_id
-     ${filtered ? 'WHERE q.status = ?' : ''}
-     ORDER BY (q.status = 'new') DESC, q.id DESC LIMIT 300`,
-    ...(filtered ? [status] : [])
+     ORDER BY q.id DESC LIMIT 300`
   ).map((q) => ({ ...q, item_count: q.item_count || 0 }));
 }
 
 export function requestDetail(id) {
-  const request = get('SELECT q.*, r.name AS rental_name FROM hire_requests q LEFT JOIN rentals r ON r.id = q.rental_id WHERE q.id = ?', id);
+  const request = get('SELECT q.*, r.name AS rental_name, r.job_number FROM hire_requests q LEFT JOIN rentals r ON r.id = q.rental_id WHERE q.id = ?', id);
   if (!request) throw new HttpError(404, 'Request not found');
   // Availability may have moved on since the request came in, so re-check it for whoever is reading
   const now = new Map(groupTypes(request.start_date, request.end_date).map((t) => [t.key, t]));
@@ -330,40 +435,29 @@ export function requestDetail(id) {
   return { request, lines };
 }
 
-export function setRequestStatus(id, status) {
-  if (!['new', 'accepted', 'declined'].includes(status)) throw new HttpError(400, 'Unknown status');
-  const { request } = requestDetail(id);
-  run('UPDATE hire_requests SET status = ? WHERE id = ?', status, request.id);
-  return requestDetail(request.id);
-}
-
-// Turns an accepted request into a rental, pre-filled with the client, event, dates and what was asked for.
-// The items themselves still have to be picked or scanned onto it, because a request names kinds, not barcodes.
-export function createRentalFromRequest(id, createRental) {
-  const { request, lines } = requestDetail(id);
-  if (request.rental_id) throw new HttpError(409, 'A rental has already been made from this request');
-  return tx(() => {
-    const rental = createRental({
-      name: `${request.event} (${request.reference})`,
-      customer: request.client,
-      start_date: request.start_date,
-      end_date: request.end_date,
-      notes: [
-        `From hire request ${request.reference}`,
-        `Requested by ${request.renter_name} <${request.renter_email}>`,
-        '',
-        'Asked for:',
-        ...lines.map((l) => `${l.qty} x ${l.label}${l.details ? ` (${l.details})` : ''}`),
-        ...(request.notes ? ['', `Their notes: ${request.notes}`] : []),
-      ].join('\n'),
-    });
-    run(`UPDATE hire_requests SET rental_id = ?, status = 'accepted' WHERE id = ?`, rental.id, request.id);
-    return { rental, request: requestDetail(request.id).request };
-  });
-}
-
-export function deleteRequest(id) {
-  const { request } = requestDetail(id);
-  run('DELETE FROM hire_requests WHERE id = ?', request.id);
-  return { ok: true };
+// Looks a request up by its unguessable `reference` (never by job number — that's sequential and must
+// not be walkable to pull someone else's hire sheet). Used only by the public PDF-download route.
+//
+// The hire sheet this produces always reflects what was BOOKED (the requirement snapshots), not
+// whatever has or hasn't been packed yet — packing progress is an internal concern. writeRentalPdf's
+// client layout counts rows to get a quantity per line, so each requirement is expanded into `qty`
+// identical synthetic rows for it to count back up again; this keeps requestPdfData a plain data
+// lookup and reuses pdf.js completely unmodified.
+export function requestPdfData(reference) {
+  const request = get('SELECT * FROM hire_requests WHERE reference = ?', String(reference ?? ''));
+  if (!request?.rental_id) throw new HttpError(404, 'Not found');
+  const rental = get('SELECT * FROM rentals WHERE id = ?', request.rental_id);
+  if (!rental) throw new HttpError(404, 'Not found');
+  const reqRows = all('SELECT * FROM rental_requirements WHERE rental_id = ?', rental.id);
+  const items = [];
+  for (const r of reqRows) {
+    for (let i = 0; i < r.qty; i++) {
+      items.push({
+        category: r.category, type: r.type, name: r.name,
+        male_connector: r.male_connector, female_connector: r.female_connector,
+        input_connector: r.input_connector, outputs: r.outputs, length_m: r.length_m,
+      });
+    }
+  }
+  return { rental, items };
 }

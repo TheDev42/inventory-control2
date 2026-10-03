@@ -4,13 +4,14 @@
 
    What it will serve: sub-categories, kinds of item and how many are free. What it will never serve:
    barcodes, item ids, costs, owners, PAT records, rentals, containers or the activity log. The only
-   thing it writes is a hire request. */
+   thing it writes is a hire request — which becomes a real, active rental immediately. */
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { HttpError, today } from './db.js';
 import * as hire from './hire.js';
+import { writeRentalPdf, safeFilename } from './pdf.js';
 
 const hireDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'hire');
 
@@ -22,9 +23,9 @@ const dateRange = (req) => {
   return start && end && end >= start ? { start, end } : {};
 };
 
-/* A plain in-memory limiter for the one route that writes. It is per-process and resets on restart,
-   which is all that is needed here: it exists to stop a stuck script or a bored visitor filling the
-   table, not to survive a determined attack. Put the site behind a proper proxy for that. */
+/* A plain in-memory limiter for the routes that write or that could be probed. It is per-process and
+   resets on restart, which is all that is needed here: it exists to stop a stuck script or a bored
+   visitor, not to survive a determined attack. Put the site behind a proper proxy for that. */
 function rateLimiter({ max, windowMs }) {
   const hits = new Map();
   return (req, res, next) => {
@@ -78,7 +79,8 @@ export function createHireApp() {
   app.get('/api/subcategories/:slug', (req, res) => res.json(hire.subcategoryPage(String(req.params.slug), dateRange(req))));
   app.get('/api/items/:key', (req, res) => res.json(hire.typePage(String(req.params.key), dateRange(req))));
 
-  // Square pictures, straight out of the database. Keys are validated so nothing here can touch the filesystem.
+  // Square (or, for the site logo, scale-to-fit) pictures, straight out of the database. Keys are
+  // validated so nothing here can touch the filesystem.
   app.get('/img/:scope/:key', (req, res) => {
     const { scope, key } = req.params;
     if (!hire.SCOPES.has(scope) || !/^[a-z0-9-]{1,80}$/.test(key)) throw new HttpError(404, 'Not found');
@@ -89,10 +91,21 @@ export function createHireApp() {
     res.send(Buffer.from(row.image));
   });
 
-  /* ---------- sending a flight case in ---------- */
+  /* ---------- sending a flight case in: this creates a real, active rental straight away ---------- */
   app.post('/api/requests', rateLimiter({ max: 12, windowMs: 60 * 60 * 1000 }), (req, res) => {
-    const { reference } = hire.createRequest(req.body || {});
-    res.status(201).json({ reference });
+    const { reference, jobNumber } = hire.createRequest(req.body || {});
+    res.status(201).json({ reference, jobNumber });
+  });
+
+  // The booking's hire sheet, keyed by the request's own unguessable reference (never by job number —
+  // that's sequential, and walking it must not let someone pull a different customer's PDF).
+  app.get('/api/requests/:reference/pdf', rateLimiter({ max: 30, windowMs: 60 * 60 * 1000 }), (req, res) => {
+    const { rental, items } = hire.requestPdfData(req.params.reference);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="hire-sheet-${safeFilename(rental.job_number)}.pdf"`,
+    });
+    writeRentalPdf(res, { rental, items, company: COMPANY, mode: 'client' });
   });
 
   /* ---------- static site ---------- */

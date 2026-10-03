@@ -5,6 +5,7 @@ import { app } from '../state.js';
 import { state as scanState, setMode } from '../scanner.js';
 import { errorBox, caseOptions, newTempBox } from '../ui.js';
 import { createPicker } from './rentalPicker.js';
+import { createRequirementPicker } from './rentalRequirementPicker.js';
 
 // What is this line of the rental right now?
 const lineState = (it) => {
@@ -22,9 +23,11 @@ export default async function rentalView({ el, args, isActive }) {
   let editing = false;
   let entered = false;
   let picking = false;
+  let addingRequirement = false;
   const selected = new Set(); // ticked lines (item ids) waiting for "assign to case"
   let containers = []; // every case and box: both permanent and temporary ones can be chosen
   const picker = createPicker({ rentalId: id, onClose: () => { picking = false; load(); } });
+  const reqPicker = createRequirementPicker({ rentalId: id, onClose: () => { addingRequirement = false; load(); } });
 
   // The bar that appears when lines are ticked. Re-drawn on its own so ticking never re-renders (and scrolls) the page.
   function renderBulk() {
@@ -52,7 +55,7 @@ export default async function rentalView({ el, args, isActive }) {
     let d;
     try { [d, containers] = await Promise.all([api.get(`/api/rentals/${id}`), api.get('/api/containers')]); } catch (err) { if (isActive()) mount(el, errorBox(err)); return; }
     if (!isActive()) return;
-    const { rental: r, items, cases } = d;
+    const { rental: r, items, cases, requirements: reqs } = d;
     const active = r.status === 'active';
 
     // Opening an active rental puts the scanner into "scan OUT" for it (once), so scanning just works.
@@ -74,10 +77,10 @@ export default async function rentalView({ el, args, isActive }) {
     const spare = containers.filter((c) => !cases.some((x) => x.container_id === c.id)); // cases not yet on this rental
 
     mount(el, html`
-      <div class="crumbs"><a href="#/rentals">Rentals</a> / ${r.name}</div>
+      <div class="crumbs"><a href="#/rentals">Rentals</a> / ${r.job_number ? html`${r.job_number} · ` : ''}${r.name}</div>
       <div class="page-head">
         <div>
-          <h1>${r.name} ${active ? '' : html`<span class="badge pat-na" style="vertical-align:middle"><span class="ico">✓</span>Completed</span>`}</h1>
+          <h1>${r.job_number ? html`<span class="mono">${r.job_number}</span> · ` : ''}${r.name} ${active ? '' : html`<span class="badge pat-na" style="vertical-align:middle"><span class="ico">✓</span>Completed</span>`}</h1>
           <div class="sub">${r.customer ? html`${r.customer} · ` : ''}${r.start_date ? fmtDate(r.start_date) : 'no start date'} → ${r.end_date ? fmtDate(r.end_date) : 'no end date'}
             ${overdue ? html` <span class="badge pat-bad"><span class="ico">✕</span>Past end date</span>` : ''}</div>
           ${r.notes ? html`<div class="muted" style="margin-top:6px;white-space:pre-wrap">${r.notes}</div>` : ''}
@@ -145,6 +148,29 @@ export default async function rentalView({ el, args, isActive }) {
         </div>` : ''}
       </section>` : ''}
 
+      <section class="card req-panel" style="margin-bottom:16px">
+        <div class="card-head"><h2>Kit requirements</h2>
+          <span class="muted small-text">"N of this kind of item" instead of specific barcodes — packing one just means scanning any N matching items.</span>
+          ${active ? html`<button class="btn secondary small" type="button" data-act="add-req">${addingRequirement ? 'Hide' : 'Add by quantity'}</button>` : ''}
+        </div>
+        ${reqs.length ? html`<div class="req-list">${reqs.map((r) => html`
+          <div class="req-row">
+            <div class="req-main"><strong>${r.label}</strong>${r.details ? html` <span class="muted small-text">${r.details}</span>` : ''}</div>
+            <div class="req-progress">
+              <span class="track" role="img" aria-label="${r.fulfilled} of ${r.qty} packed">
+                ${r.fulfilled > 0 ? html`<span class="seg-fill" style="--c:var(--s1);flex:${r.fulfilled}"></span>` : ''}
+                ${r.qty > r.fulfilled ? html`<span class="seg-fill" style="--c:var(--line-strong);flex:${r.qty - r.fulfilled}"></span>` : ''}
+              </span>
+              <span class="nowrap small-text">${r.fulfilled} / ${r.qty} packed</span>
+            </div>
+            ${active ? html`<span class="actions">
+              <input type="number" class="req-qty" data-req="${r.id}" min="1" max="999" value="${r.qty}" aria-label="Quantity for ${r.label}">
+              <button class="btn ghost small danger" type="button" data-req-remove="${r.id}" title="Remove this kit requirement">Remove</button>
+            </span>` : ''}
+          </div>`)}</div>` : html`<div class="empty">No kit requirements on this rental.</div>`}
+        ${active && addingRequirement ? html`<div id="req-picker-host" style="margin-top:12px"></div>` : ''}
+      </section>
+
       <div class="toolbar">
         <div class="tabs" style="margin:0">${[['all', 'All'], ['out', 'Out'], ['returned', 'Returned'], ['lost', 'Lost']].map(([k, l]) =>
           html`<button class="tab" data-filter="${k}" aria-pressed="${String(filter === k)}">${l}<span class="count">${counts[k]}</span></button>`)}</div>
@@ -180,6 +206,7 @@ export default async function rentalView({ el, args, isActive }) {
 
     renderBulk();
     if (active && picking) picker.mount($('#picker-host', el));
+    if (active && addingRequirement) reqPicker.mount($('#req-picker-host', el));
   }
 
   async function run(fn, okMsg) {
@@ -223,6 +250,11 @@ export default async function rentalView({ el, args, isActive }) {
     if (ret) { run(() => api.post(`/api/items/${ret.dataset.return}/return`), 'Returned to stock'); return; }
     const rem = t.closest('[data-remove]');
     if (rem) { run(() => api.del(`/api/rentals/${id}/items/${rem.dataset.remove}`), 'Removed from rental'); return; }
+    const reqRemove = t.closest('[data-req-remove]');
+    if (reqRemove) {
+      if (confirm('Remove this kit requirement?')) run(() => api.del(`/api/rentals/${id}/requirements/${reqRemove.dataset.reqRemove}`), 'Requirement removed');
+      return;
+    }
 
     const act = t.closest('[data-act]')?.dataset.act;
     if (act === 'edit') { editing = !editing; load(); }
@@ -230,6 +262,10 @@ export default async function rentalView({ el, args, isActive }) {
       picking = !picking;
       await load();
       if (picking) { $('#picker-host', el)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); picker.focus(); }
+    } else if (act === 'add-req') {
+      addingRequirement = !addingRequirement;
+      await load();
+      if (addingRequirement) { $('#req-picker-host', el)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); reqPicker.focus(); }
     } else if (act === 'case-add') {
       const v = $('#case-add', el).value;
       if (!v) { toast('Choose a case to add first', 'info'); return; }
@@ -289,6 +325,12 @@ export default async function rentalView({ el, args, isActive }) {
       renderBulk();
     } else if (t.dataset.caseFor) {
       assign([Number(t.dataset.caseFor)], t.value);
+    } else if (t.classList.contains('req-qty')) {
+      const qty = Math.max(1, Math.min(999, Math.floor(Number(t.value)) || 1));
+      t.value = qty;
+      api.put(`/api/rentals/${id}/requirements/${t.dataset.req}`, { qty })
+        .then(() => notifyChanged())
+        .catch((err) => { toast(err.message, 'error', 5000); load(); });
     }
   };
 
