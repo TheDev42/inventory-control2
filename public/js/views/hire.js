@@ -140,26 +140,49 @@ export default async function hireView({ el, query, isActive }) {
       reorderRow('subcategory', s.slug, s.label))}</div>`;
   }
 
+  // A named divider line in a sub-category's list. Everything under it, down to the next divider, is shown
+  // beneath that heading on the site. Dividers are not stored as rows of their own: each item just remembers
+  // the name of the divider it sits under (its "section"), which saveOrder() works out from the row order.
+  const dividerRow = (name = '') => html`<div class="reorder-row reorder-divider" data-divider>
+    <div class="reorder-main"><span class="muted small-text">Divider</span>
+      <input class="reorder-section" type="text" value="${name}" placeholder="Name shown on the line (e.g. 16A)" maxlength="60" aria-label="Divider name"></div>
+    <div class="reorder-move">
+      <button class="btn ghost small" type="button" data-move="up" aria-label="Move divider up">↑</button>
+      <button class="btn ghost small" type="button" data-move="down" aria-label="Move divider down">↓</button>
+      <button class="btn ghost small" type="button" data-remove-divider aria-label="Remove divider">✕</button>
+    </div>
+  </div>`;
+
   function renderTypeReorder(sub) {
     const types = catalogue.types.filter((t) => t.subcategory === sub.slug);
-    const sections = [...new Set(types.map((t) => t.section).filter(Boolean))].sort();
-    const datalistId = `sections-${sub.slug}`;
+    const rows = [];
+    let current = null;
+    for (const t of types) {
+      const section = t.section || null;
+      if (section !== current && section) rows.push(dividerRow(section));
+      // items with no section that come after a named one get an unnamed divider, so they stay out of it
+      else if (section !== current) rows.push(dividerRow(''));
+      current = section;
+      rows.push(reorderRow('type', t.key, t.label));
+    }
     return html`<div class="reorder-group">
-      <datalist id="${datalistId}">${sections.map((s) => html`<option value="${s}">`)}</datalist>
-      <div class="reorder-list" id="type-order-${sub.slug}" data-sub="${sub.slug}">${types.map((t) => reorderRow('type', t.key, t.label,
-        html` <input class="reorder-section" type="text" list="${datalistId}" value="${t.section || ''}" placeholder="Section (e.g. 16A)" maxlength="60" aria-label="Section for ${t.label}">`))}</div>
+      <div class="reorder-list" id="type-order-${sub.slug}" data-sub="${sub.slug}">${rows}</div>
+      <div style="margin-top:8px"><button class="btn secondary small" type="button" data-add-divider="type-order-${sub.slug}">+ Add divider</button></div>
     </div>`;
   }
 
   // Resends the whole list's order (and, for item types, section) in one go — simplest way to turn
   // "move/relabel this one row" into consistent, gap-free sort_order values for everyone in the list.
   async function saveOrder(listEl, { withSections } = {}) {
-    const rows = [...listEl.querySelectorAll('.reorder-row')];
-    const entries = rows.map((row, i) => {
-      const entry = { scope: row.dataset.scope, key: row.dataset.key, sortOrder: i * 10 };
-      if (withSections) entry.section = row.querySelector('.reorder-section')?.value || '';
-      return entry;
-    });
+    const entries = [];
+    let section = ''; // the name on the nearest divider above the row being looked at
+    for (const row of listEl.querySelectorAll('.reorder-row')) {
+      if (row.hasAttribute('data-divider')) { section = row.querySelector('.reorder-section').value.trim(); continue; }
+      const entry = { scope: row.dataset.scope, key: row.dataset.key, sortOrder: entries.length * 10 };
+      if (withSections) entry.section = section;
+      entries.push(entry);
+    }
+    if (!entries.length) return;
     try {
       catalogue = await api.post('/api/hire/order', entries);
       toast('Order saved', 'ok');
@@ -192,7 +215,7 @@ export default async function hireView({ el, query, isActive }) {
         <p class="muted small-text">The order of the tiles on the hire home page.</p>
         ${renderSubReorder()}
         <h2 class="hire-head">Kinds of item, by sub-category</h2>
-        <p class="muted small-text">Order within each sub-category, and the section (e.g. "16A", "32A") each one sits under. Leave the section blank to keep it unsectioned. Changes save as soon as you move or retype something.</p>
+        <p class="muted small-text">Order within each sub-category. <strong>+ Add divider</strong> puts a named line across that sub-category's page (e.g. "16A", "32A"): everything under a divider, down to the next one, is shown beneath it. Move dividers up and down like any other row. Changes save as soon as you move or retype something.</p>
         ${catalogue.subcategories.map((s) => html`<div class="reorder-sub-head">${s.label}</div>${renderTypeReorder(s)}`)}`
       : html`
         <h2 class="hire-head">Sub-categories</h2>
@@ -329,6 +352,21 @@ export default async function hireView({ el, query, isActive }) {
       saveOrder(list, { withSections: list.id.startsWith('type-order-') });
       return;
     }
+    const addDivider = e.target.closest('button[data-add-divider]');
+    if (addDivider) {
+      // goes in at the top; name it, then move it down to where the new group starts
+      const list = document.getElementById(addDivider.dataset.addDivider);
+      list.insertAdjacentHTML('afterbegin', dividerRow().toString());
+      list.firstElementChild.querySelector('.reorder-section').focus();
+      return;
+    }
+    const removeDivider = e.target.closest('button[data-remove-divider]');
+    if (removeDivider) {
+      const list = removeDivider.closest('.reorder-list');
+      removeDivider.closest('.reorder-row').remove();
+      saveOrder(list, { withSections: true });
+      return;
+    }
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
@@ -363,7 +401,7 @@ export default async function hireView({ el, query, isActive }) {
     }
   });
 
-  // Retyping a section (no row movement) also needs saving
+  // Renaming a divider (no row movement) also needs saving
   $('#hire-body', el).addEventListener('change', (e) => {
     const input = e.target.closest('.reorder-section');
     if (!input) return;

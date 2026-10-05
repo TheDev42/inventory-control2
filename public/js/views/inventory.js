@@ -19,7 +19,7 @@ export default async function inventoryView({ el, query, isActive }) {
     q: query.get('q') || '', category: query.get('category') || '', type: query.get('type') || '',
     status: query.get('status') || '', pat: query.get('pat') || '', owner: query.get('owner') || '',
     sort: query.get('sort') || 'barcode', dir: query.get('dir') === 'desc' ? 'desc' : 'asc',
-    limit: Number(query.get('limit')) || 50, page: Math.max(0, (Number(query.get('page')) || 1) - 1),
+    limit: Number(query.get('limit')) || 250, page: Math.max(0, (Number(query.get('page')) || 1) - 1),
   };
   const meta = app.meta;
   const allTypes = [...new Set(Object.values(meta.catalog).flat())];
@@ -36,7 +36,7 @@ export default async function inventoryView({ el, query, isActive }) {
     delete p.offset;
     if (s.sort === 'barcode') delete p.sort;
     if (s.dir === 'asc') delete p.dir;
-    if (s.limit === 50) delete p.limit;
+    if (s.limit === 250) delete p.limit;
     p.page = s.page ? s.page + 1 : '';
     history.replaceState(null, '', '#/inventory' + qs(p));
   };

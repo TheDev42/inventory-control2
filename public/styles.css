@@ -539,3 +539,8 @@ table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 65
 .cat-types li .grow { flex: 1; min-width: 0; }
 .cat-add { display: flex; flex-wrap: wrap; gap: 8px; }
 .cat-add input[type="text"] { flex: 1 1 140px; min-width: 0; }
+
+/* a divider line in the hire-site reorder list */
+.reorder-divider { background: var(--surface-2); border-style: dashed; }
+.reorder-divider .reorder-section { max-width: 320px; flex: 1; }
+.reorder-divider .reorder-move .btn { width: 30px; }

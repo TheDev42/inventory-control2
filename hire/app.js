@@ -217,6 +217,17 @@ function paintBookingBar() {
 /* ---------- pages ---------- */
 const view = () => $('#main');
 
+// The home page tiles under one heading per category (Power, Lighting, …). Categories come in the order
+// their first tile appears, and the tiles keep the order arranged from the admin.
+function groupByCategory(subcategories) {
+  const groups = new Map();
+  for (const s of subcategories) {
+    if (!groups.has(s.category)) groups.set(s.category, []);
+    groups.get(s.category).push(s);
+  }
+  return [...groups].map(([name, items]) => ({ name, items }));
+}
+
 async function homePage() {
   const data = await api('GET', '/api/catalogue' + qs(dateWindow()));
 
@@ -232,13 +243,16 @@ async function homePage() {
       ? html`<p class="muted small">Quantities below are what is free for <b>${fmtRange(state.booking.start, state.booking.end)}</b>.</p>`
       : html`<p class="muted small">Quantities below are what is in stock right now. Set your hire dates to see what is free for them.</p>`}
     ${data.subcategories.length
-      ? html`<div class="grid">${data.subcategories.map((s) => html`<a class="tile" href="#/c/${s.slug}">
-          ${picture('subcategory', s.slug, s.image, s.label)}
-          <div class="tile-body">
-            <div class="name">${s.label}</div>
-            <div class="det">${plural(s.kinds, 'kind')} · ${plural(s.total, 'item')}</div>
-            <div class="foot">${availPill(s.available, data.dated)}</div>
-          </div></a>`)}</div>`
+      ? groupByCategory(data.subcategories).map((group) => html`<div class="kit-section">
+          <div class="kit-section-head">${group.name}</div>
+          <div class="grid">${group.items.map((s) => html`<a class="tile" href="#/c/${s.slug}">
+            ${picture('subcategory', s.slug, s.image, s.label)}
+            <div class="tile-body">
+              <div class="name">${s.label}</div>
+              <div class="det">${plural(s.kinds, 'kind')} · ${plural(s.total, 'item')}</div>
+              <div class="foot">${availPill(s.available, data.dated)}</div>
+            </div></a>`)}</div>
+        </div>`)
       : html`<div class="empty">Nothing is listed for hire yet. Please check back soon.</div>`}
   </div>`);
 
