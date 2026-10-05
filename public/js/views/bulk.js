@@ -49,6 +49,7 @@ function parseCsv(text) {
 const HEADER_ALIASES = {
   barcode: 'barcode', code: 'barcode', id: 'barcode',
   category: 'category', type: 'type',
+  categorytwo: 'category2', secondcategory: 'category2', typetwo: 'type2', secondtype: 'type2',
   name: 'name', description: 'name',
   male: 'male_connector', maleend: 'male_connector', maleconnector: 'male_connector',
   female: 'female_connector', femaleend: 'female_connector', femaleconnector: 'female_connector',
@@ -65,7 +66,7 @@ const HEADER_ALIASES = {
 function csvToItems(text) {
   const rows = parseCsv(text);
   if (rows.length < 2) return { items: [], problems: ['Need a header row and at least one data row'] };
-  const map = rows[0].map((h) => HEADER_ALIASES[h.toLowerCase().replace(/[^a-z]/g, '')] || null);
+  const map = rows[0].map((h) => HEADER_ALIASES[h.toLowerCase().replace(/2/g, 'two').replace(/[^a-z]/g, '')] || null);
   const problems = [];
   for (const need of ['barcode', 'category', 'type']) if (!map.includes(need)) problems.push(`Missing "${need}" column`);
   const items = rows.slice(1).map((r) => {
@@ -133,7 +134,7 @@ export default async function bulkView({ el }) {
     <div id="tab-csv" class="stack" hidden>
       <section class="card">
         <h2>Import from CSV</h2>
-        <p class="muted">Columns: <code>barcode, category, type</code> are required; optional: <code>name, male_connector, female_connector, length_m, pat_required, pat_interval_months, location, cost</code>. <code>owner</code> is <code>company</code> (the default) or <code>me</code>. Distros use <code>input_connector</code> and <code>outputs</code> (e.g. <code>6x 16A Cee (blue); 2x 13A (BS1363)</code>) instead of the male/female ends.
+        <p class="muted">Columns: <code>barcode, category, type</code> are required; optional: <code>name, male_connector, female_connector, length_m, pat_required, pat_interval_months, location, cost, category2, type2</code>. <code>owner</code> is <code>company</code> (the default) or <code>me</code>. Distros use <code>input_connector</code> and <code>outputs</code> (e.g. <code>6x 16A Cee (blue); 2x 13A (BS1363)</code>) instead of the male/female ends.
           Category is ${Object.keys(app.meta.catalog).join(' / ')} (<a href="#/categories">add more</a>). Paste from a spreadsheet, or choose a file. Barcodes that a spreadsheet has stripped of leading zeros (12 instead of 00012) are padded back to ${app.meta.barcodeDigits || 5} digits. <a href="#" id="csv-template">Download a template</a>.</p>
         <div class="field"><label for="csv-file">CSV file</label><input id="csv-file" type="file" accept=".csv,.txt,text/csv"></div>
         <div class="field" style="margin-top:10px"><label for="csv-text">…or paste here</label><textarea id="csv-text" rows="8" spellcheck="false"></textarea></div>

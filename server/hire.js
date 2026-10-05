@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS hire_request_lines (
 CREATE INDEX IF NOT EXISTS idx_hire_lines_req ON hire_request_lines(request_id);
 `);
 ensureColumn('hire_meta', 'section', 'TEXT'); // only meaningful for scope='type': groups it under a heading within its sub-category
+ensureColumn('hire_meta', 'hide_secondary', 'INTEGER NOT NULL DEFAULT 0'); // scope='type': 1 = list it under its main sub-category only, not its second one
 ensureColumn('hire_meta', 'sort_order', 'INTEGER'); // manual display order; NULL sorts after everything that has been arranged
 
 export const IMAGE_MIMES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
@@ -84,7 +85,7 @@ function stockRows(startDate, endDate) {
   if (isDate(startDate) && isDate(endDate)) {
     const t = today(); // generated here, never user input, so it is safe to inline
     return all(
-      `SELECT i.category, i.type, i.name, i.male_connector, i.female_connector, i.input_connector, i.outputs, i.length_m,
+      `SELECT i.category, i.type, i.category2, i.type2, i.name, i.male_connector, i.female_connector, i.input_connector, i.outputs, i.length_m,
          (i.status IN ('lost','disassembled','repair')
           OR EXISTS (SELECT 1 FROM rental_items ri JOIN rentals r ON r.id = ri.rental_id
                      WHERE ri.item_id = i.id AND ri.outcome IS NULL AND r.status = 'active'
@@ -96,7 +97,7 @@ function stockRows(startDate, endDate) {
     );
   }
   return all(
-    `SELECT category, type, name, male_connector, female_connector, input_connector, outputs, length_m,
+    `SELECT category, type, category2, type2, name, male_connector, female_connector, input_connector, outputs, length_m,
        (status != 'in_stock') AS busy
      FROM items WHERE status != 'sold' ORDER BY id`
   );
@@ -162,9 +163,15 @@ function groupTypes(startDate, endDate) {
     if (!g) {
       g = {
         key, category: r.category, type: r.type, subcategory: subSlug(r.category, r.type),
-        outputs: r.outputs, length_m: r.length_m, total: 0, available: 0, spellings: {},
+        outputs: r.outputs, length_m: r.length_m, total: 0, available: 0, spellings: {}, also: new Map(),
       };
       groups.set(key, g);
+    }
+    // A second category/type on any of its items lists the whole kind there too. It stays one kind with one
+    // key, so the picture, wording and bookings are the same ones wherever it is shown.
+    if (r.category2 && r.type2) {
+      const slug = subSlug(r.category2, r.type2);
+      if (slug !== g.subcategory) g.also.set(slug, { slug, category: r.category2, type: r.type2 });
     }
     g.total++;
     if (!r.busy) g.available++;
@@ -178,10 +185,11 @@ function groupTypes(startDate, endDate) {
     for (const g of groups.values()) g.available = Math.max(0, g.available - (reserved.get(g.key) || 0));
   }
   const commonest = (m) => (m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : null);
-  const metaByKey = new Map(all(`SELECT key, label, about, section, sort_order, image IS NOT NULL AS has_image FROM hire_meta WHERE scope = 'type'`).map((m) => [m.key, m]));
-  const list = [...groups.values()].map(({ spellings, ...g }) => {
+  const metaByKey = new Map(all(`SELECT key, label, about, section, sort_order, hide_secondary, image IS NOT NULL AS has_image FROM hire_meta WHERE scope = 'type'`).map((m) => [m.key, m]));
+  const list = [...groups.values()].map(({ spellings, also, ...g }) => {
     const out = {
       ...g,
+      also: [...also.values()],
       name: commonest(spellings.name),
       male_connector: commonest(spellings.male_connector),
       female_connector: commonest(spellings.female_connector),
@@ -192,6 +200,7 @@ function groupTypes(startDate, endDate) {
     out.about = meta?.about || null;
     out.section = meta?.section || null;
     out.sort_order = meta?.sort_order ?? null;
+    out.hide_secondary = !!meta?.hide_secondary;
     out.image = !!meta?.has_image;
     out.details = detailLine(out);
     return out;
@@ -201,25 +210,31 @@ function groupTypes(startDate, endDate) {
 }
 
 // The sub-category tiles on the hire home page.
-export function catalogue({ start, end } = {}) {
+// `admin` keeps every kind's second sub-category and its on/off switch; the public site only ever gets
+// the ones that are switched on.
+export function catalogue({ start, end, admin = false } = {}) {
   const types = groupTypes(start, end);
   const metaBySlug = new Map(all(`SELECT key, label, about, sort_order, image IS NOT NULL AS has_image FROM hire_meta WHERE scope = 'subcategory'`).map((m) => [m.key, m]));
   const subs = new Map();
   for (const t of types) {
-    let s = subs.get(t.subcategory);
-    if (!s) {
-      const meta = metaBySlug.get(t.subcategory);
-      s = {
-        slug: t.subcategory, category: t.category, type: t.type,
-        label: (meta?.label || `${cap(t.category)} ${t.type}`).trim(),
-        about: meta?.about || null, image: !!meta?.has_image, sort_order: meta?.sort_order ?? null,
-        kinds: 0, total: 0, available: 0,
-      };
-      subs.set(t.subcategory, s);
+    const shownIn = t.hide_secondary ? [] : t.also;
+    if (!admin) { t.also = shownIn; delete t.hide_secondary; }
+    for (const place of [{ slug: t.subcategory, category: t.category, type: t.type }, ...shownIn]) {
+      let s = subs.get(place.slug);
+      if (!s) {
+        const meta = metaBySlug.get(place.slug);
+        s = {
+          slug: place.slug, category: place.category, type: place.type,
+          label: (meta?.label || `${cap(place.category)} ${place.type}`).trim(),
+          about: meta?.about || null, image: !!meta?.has_image, sort_order: meta?.sort_order ?? null,
+          kinds: 0, total: 0, available: 0,
+        };
+        subs.set(place.slug, s);
+      }
+      s.kinds++;
+      s.total += t.total;
+      s.available += t.available;
     }
-    s.kinds++;
-    s.total += t.total;
-    s.available += t.available;
   }
   const order = categoryOrder();
   const rank = (c) => { const i = order.indexOf(c); return i < 0 ? order.length : i; };
@@ -231,7 +246,7 @@ export function subcategoryPage(slug, { start, end } = {}) {
   const c = catalogue({ start, end });
   const sub = c.subcategories.find((s) => s.slug === slug);
   if (!sub) throw new HttpError(404, 'Not found');
-  return { subcategory: sub, types: c.types.filter((t) => t.subcategory === slug), dated: c.dated };
+  return { subcategory: sub, types: c.types.filter((t) => t.subcategory === slug || t.also.some((a) => a.slug === slug)), dated: c.dated };
 }
 
 export function typePage(key, { start, end } = {}) {
@@ -243,7 +258,7 @@ export function typePage(key, { start, end } = {}) {
 
 // Everything the admin "Hire site" page needs: each tile and item type with whatever has been filled in for it.
 export function adminCatalogue() {
-  const c = catalogue();
+  const c = catalogue({ admin: true });
   const meta = all('SELECT scope, key, label, about, section, sort_order, image IS NOT NULL AS has_image, updated_at FROM hire_meta');
   const bySub = new Map(meta.filter((m) => m.scope === 'subcategory').map((m) => [m.key, m]));
   const byType = new Map(meta.filter((m) => m.scope === 'type').map((m) => [m.key, m]));
@@ -284,7 +299,7 @@ export function reorder(entries) {
 export const getImage = (scope, key) =>
   get('SELECT image, image_mime, updated_at FROM hire_meta WHERE scope = ? AND key = ? AND image IS NOT NULL', scope, key);
 
-export function saveMeta(scope, key, { label, about, image, imageMime, clearImage } = {}) {
+export function saveMeta(scope, key, { label, about, image, imageMime, clearImage, hideSecondary } = {}) {
   if (!SCOPES.has(scope)) throw new HttpError(400, 'Unknown scope');
   if (!/^[a-z0-9-]{1,80}$/.test(String(key))) throw new HttpError(400, 'Invalid key');
   const existing = get('SELECT * FROM hire_meta WHERE scope = ? AND key = ?', scope, key);
@@ -297,6 +312,7 @@ export function saveMeta(scope, key, { label, about, image, imageMime, clearImag
     about: about === undefined ? existing?.about ?? null : clean(about, 4000),
     image: existing?.image ?? null,
     image_mime: existing?.image_mime ?? null,
+    hide_secondary: hideSecondary === undefined ? existing?.hide_secondary ?? 0 : hideSecondary ? 1 : 0,
   };
   if (clearImage) {
     row.image = null;
@@ -308,10 +324,10 @@ export function saveMeta(scope, key, { label, about, image, imageMime, clearImag
     row.image_mime = imageMime;
   }
   run(
-    `INSERT INTO hire_meta (scope, key, label, about, image, image_mime, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO hire_meta (scope, key, label, about, image, image_mime, hide_secondary, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (scope, key) DO UPDATE SET label=excluded.label, about=excluded.about, image=excluded.image,
-       image_mime=excluded.image_mime, updated_at=excluded.updated_at`,
-    scope, key, row.label, row.about, row.image, row.image_mime, nowIso()
+       image_mime=excluded.image_mime, hide_secondary=excluded.hide_secondary, updated_at=excluded.updated_at`,
+    scope, key, row.label, row.about, row.image, row.image_mime, row.hide_secondary, nowIso()
   );
   return { ok: true, scope, key, label: row.label, about: row.about, image: !!row.image };
 }

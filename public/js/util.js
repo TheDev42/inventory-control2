@@ -127,7 +127,7 @@ export const patBadge = (s) => {
 export const ownerBadge = (it) =>
   it.owner === 'personal' ? html`<span class="badge st-mine" title="Owned by me personally, not by the company"><span class="ico" aria-hidden="true">◆</span>Mine</span>` : '';
 
-export const itemTitle = (it) => `${cap(it.category)} ${it.type}`;
+export const itemTitle = (it) => `${cap(it.category)} ${it.type}${it.category2 ? ` + ${cap(it.category2)} ${it.type2}` : ''}`;
 // Distro outputs arrive as a JSON string: [{ connector, qty }]
 export const outputsOf = (it) => {
   try { const v = JSON.parse(it.outputs); return Array.isArray(v) ? v : []; } catch { return []; }

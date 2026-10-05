@@ -25,10 +25,14 @@ export default async function overviewView({ el, isActive }) {
   let sort = 'name';
   let owner = ''; // '' = everyone's, otherwise company / personal
 
+  // a kind sits under its main category and under any second category its items have
+  const inCategory = (g, cat) => g.category === cat || g.also.some((a) => a.category === cat);
+  const allCategories = (groups) => [...new Set(groups.flatMap((g) => [g.category, ...g.also.map((a) => a.category)]))];
+
   const matches = (g) => {
-    if (category && g.category !== category) return false;
+    if (category && !inCategory(g, category)) return false;
     if (!q) return true;
-    const hay = [g.category, g.type, g.name, g.male_connector, g.female_connector, g.input_connector, g.outputs, g.length_m != null ? `${g.length_m}m` : '']
+    const hay = [g.category, g.type, ...g.also.flatMap((a) => [a.category, a.type]), g.name, g.male_connector, g.female_connector, g.input_connector, g.outputs, g.length_m != null ? `${g.length_m}m` : '']
       .join(' ').toLowerCase();
     return q.toLowerCase().split(/\s+/).every((t) => hay.includes(t));
   };
@@ -39,10 +43,10 @@ export default async function overviewView({ el, isActive }) {
     const shown = data.groups.filter(matches);
     if (sort === 'total') shown.sort((a, b) => b.total - a.total || label(a).localeCompare(label(b)));
     else if (sort === 'low') shown.sort((a, b) => a.available - b.available || label(a).localeCompare(label(b)));
-    const categories = [...new Set(data.groups.map((g) => g.category))];
+    const categories = allCategories(data.groups);
 
     const row = (g) => html`<tr>
-      <td><div class="cell-main">${label(g)}</div><div class="cell-sub">${itemTitle(g)}${g.length_m != null ? ` · ${g.length_m} m` : ''}${g.personal > 0 && g.personal < g.total ? ` · ${g.personal} of ${g.total} are mine` : g.personal === g.total && g.total > 0 && !owner ? ' · all mine' : ''}</div></td>
+      <td><div class="cell-main">${label(g)}</div><div class="cell-sub">${itemTitle(g)}${g.also.length ? ` · also in ${g.also.map((a) => `${cap(a.category)} ${a.type}`).join(', ')}` : ''}${g.length_m != null ? ` · ${g.length_m} m` : ''}${g.personal > 0 && g.personal < g.total ? ` · ${g.personal} of ${g.total} are mine` : g.personal === g.total && g.total > 0 && !owner ? ' · all mine' : ''}</div></td>
       <td>${ends(g)}</td>
       <td class="num"><a class="big-num" href="${inventoryLink(g, undefined, owner)}" title="Show all ${g.total} in the inventory">${g.total}</a></td>
       <td class="num avail ${g.available === 0 ? 'none' : g.available === g.total ? 'all' : ''}">
@@ -55,7 +59,7 @@ export default async function overviewView({ el, isActive }) {
     // grouped under a heading per category when sorted by name; a flat list otherwise
     const body = sort === 'name'
       ? categories.map((cat) => {
-        const rows = shown.filter((g) => g.category === cat);
+        const rows = shown.filter((g) => inCategory(g, cat));
         if (!rows.length) return '';
         const sum = (k) => rows.reduce((s, g) => s + g[k], 0);
         return html`<tr class="group-row"><td colspan="5">${cap(cat)} <span class="muted">· ${plural(sum('total'), 'item')} in ${plural(rows.length, 'kind')}, ${sum('available')} available</span></td></tr>${rows.map(row)}`;
@@ -98,7 +102,7 @@ export default async function overviewView({ el, isActive }) {
       <div class="kpi"><div class="label"><span class="dot" style="--c:var(--s7)"></span>Repair, lost or taken apart</div><div class="value">${t.repair + t.lost + t.disassembled}</div>
         <div class="note">${t.repair} repair · ${t.lost} lost · ${t.disassembled} disassembled</div></div>`);
     const sel = $('#ov-category', el);
-    sel.innerHTML = '<option value="">All categories</option>' + [...new Set(d.groups.map((g) => g.category))].map((c) => `<option value="${c}">${cap(c)}</option>`).join('');
+    sel.innerHTML = '<option value="">All categories</option>' + allCategories(d.groups).map((c) => `<option value="${c}">${cap(c)}</option>`).join('');
     sel.value = category;
     render();
   }

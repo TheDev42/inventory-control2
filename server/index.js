@@ -94,7 +94,7 @@ app.get('/api/items/export.csv', (req, res) => {
   const total = items.listItems({ ...req.query, limit: 1 }).total;
   let list = rows;
   for (let off = 1000; off < total; off += 1000) list = list.concat(items.listItems({ ...req.query, limit: 1000, offset: off }).items);
-  const cols = ['barcode', 'category', 'type', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'status', 'owner',
+  const cols = ['barcode', 'category', 'type', 'category2', 'type2', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'status', 'owner',
     'rental_name', 'container_name', 'location', 'pat_required', 'pat_status', 'last_pat_date', 'next_pat_due'];
   // Guard against spreadsheet formula injection in text cells
   const cell = (v) => {
@@ -215,6 +215,7 @@ app.put('/api/hire/meta/:scope/:key', (req, res) => {
   const { scope, key } = hireKey(req);
   const body = req.body || {};
   const patch = { label: body.label, about: body.about, clearImage: body.image === null };
+  if (typeof body.hideSecondary === 'boolean') patch.hideSecondary = body.hideSecondary;
   if (typeof body.image === 'string' && body.image) {
     const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(body.image.trim());
     if (!m) throw new HttpError(400, 'Pictures must be PNG, JPEG or WebP');

@@ -36,7 +36,7 @@ export const getItemByBarcode = (barcode) => get(`${itemSelect()} WHERE i.barcod
 export const getContainerByBarcode = (barcode) => get('SELECT * FROM containers WHERE barcode = ?', normalizeBarcode(barcode));
 
 export function describeItem(item) {
-  const parts = [`${cap(item.category)} ${item.type}`];
+  const parts = [`${cap(item.category)} ${item.type}${item.category2 ? ` + ${cap(item.category2)} ${item.type2}` : ''}`];
   if (item.name) parts.push(item.name);
   if (item.male_connector || item.female_connector) {
     parts.push(`${item.male_connector || '?'} → ${item.female_connector || '?'}`);
@@ -74,11 +74,17 @@ const escapeLike = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
 export function listItems(query = {}) {
   const where = [];
   const args = [];
-  const exact = { category: 'i.category', type: 'i.type', status: 'i.status', owner: 'i.owner', rental_id: 'i.rental_id', container_id: 'i.container_id' };
+  // Category and type match an item's second category/type as well as its main one
+  const cat = query.category !== undefined && query.category !== '' ? String(query.category).toUpperCase() : null;
+  const typ = query.type !== undefined && query.type !== '' ? String(query.type).toLowerCase() : null;
+  if (cat && typ) { where.push('((i.category = ? AND i.type = ?) OR (i.category2 = ? AND i.type2 = ?))'); args.push(cat, typ, cat, typ); }
+  else if (cat) { where.push('(i.category = ? OR i.category2 = ?)'); args.push(cat, cat); }
+  else if (typ) { where.push('(i.type = ? OR i.type2 = ?)'); args.push(typ, typ); }
+  const exact = { status: 'i.status', owner: 'i.owner', rental_id: 'i.rental_id', container_id: 'i.container_id' };
   for (const [key, col] of Object.entries(exact)) {
     if (query[key] !== undefined && query[key] !== '') {
       where.push(`${col} = ?`);
-      args.push(key === 'category' ? String(query[key]).toUpperCase() : key === 'owner' ? (parseOwner(query[key]) ?? query[key]) : query[key]);
+      args.push(key === 'owner' ? (parseOwner(query[key]) ?? query[key]) : query[key]);
     }
   }
   if (query.male) { where.push('i.male_connector = ? COLLATE NOCASE'); args.push(query.male); }
@@ -109,7 +115,7 @@ export function listItems(query = {}) {
       const like = `%${escapeLike(term)}%`;
       const wordLike = ` ${escapeLike(term)} `;
       const cols = [
-        'i.barcode', 'i.category', 'i.type', 'i.name', 'i.male_connector', 'i.female_connector', 'i.input_connector', 'i.outputs',
+        'i.barcode', 'i.category', 'i.type', "IFNULL(i.category2, '')", "IFNULL(i.type2, '')", 'i.name', 'i.male_connector', 'i.female_connector', 'i.input_connector', 'i.outputs',
         'i.location', "(CASE i.owner WHEN 'personal' THEN 'personal mine me' ELSE 'company' END)",
         "replace(i.status, '_', ' ')", 'r.name', 'c.name', 'c.barcode', 'c.location', 'CAST(i.length_m AS TEXT)',
         'i.last_pat_date', 'i.next_pat_due', `replace(${pat}, '_', ' ')`,
@@ -220,6 +226,15 @@ export function cleanItem(d) {
     throw new HttpError(400, `Invalid type "${d.type}" for ${category} (use ${catalog[category].join(', ') || 'none yet — add a sub-category first'})`);
   }
   const fields = fieldsFor(category, type);
+  // Optional second category + type: both or neither
+  const category2 = String(d.category2 || '').trim().toUpperCase() || null;
+  const type2 = String(d.type2 || '').trim().toLowerCase() || null;
+  if (category2 || type2) {
+    if (!category2 || !type2) throw new HttpError(400, 'A second category needs both a category and a type');
+    if (!catalog[category2]) throw new HttpError(400, `Invalid second category "${d.category2}" (use ${Object.keys(catalog).join(', ')})`);
+    if (!catalog[category2].includes(type2)) throw new HttpError(400, `Invalid second type "${d.type2}" for ${category2} (use ${catalog[category2].join(', ') || 'none yet — add a sub-category first'})`);
+    if (category2 === category && type2 === type) throw new HttpError(400, 'The second category and type are the same as the first');
+  }
   const hasConnectors = fields === 'ends';
   const isDistro = fields === 'outputs';
   const owner = parseOwner(d.owner);
@@ -241,7 +256,7 @@ export function cleanItem(d) {
     throw new HttpError(400, 'Container not found');
   }
   return {
-    barcode, category, type,
+    barcode, category, type, category2, type2,
     name: str(d.name),
     male_connector: hasConnectors ? str(d.male_connector) : null,
     female_connector: hasConnectors ? str(d.female_connector) : null,
@@ -262,10 +277,10 @@ export function cleanItem(d) {
 function insertItem(c) {
   const ts = nowIso();
   const res = run(
-    `INSERT INTO items (barcode, category, type, name, male_connector, female_connector, input_connector, outputs, length_m,
+    `INSERT INTO items (barcode, category, type, category2, type2, name, male_connector, female_connector, input_connector, outputs, length_m,
        pat_required, pat_interval_months, container_id, owner, location, cost, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    c.barcode, c.category, c.type, c.category2, c.type2, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
     c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, ts, ts
   );
   return getItem(Number(res.lastInsertRowid));
@@ -319,9 +334,9 @@ export function updateItem(id, data) {
   if (clash) throw new HttpError(409, `Barcode ${c.barcode} is already used by a ${clash}`);
   if (existing.status === 'sold' && c.container_id) throw new HttpError(409, 'Sold items cannot be stored in a container');
   run(
-    `UPDATE items SET barcode=?, category=?, type=?, name=?, male_connector=?, female_connector=?, input_connector=?, outputs=?, length_m=?,
+    `UPDATE items SET barcode=?, category=?, type=?, category2=?, type2=?, name=?, male_connector=?, female_connector=?, input_connector=?, outputs=?, length_m=?,
        pat_required=?, pat_interval_months=?, container_id=?, owner=?, location=?, cost=?, updated_at=? WHERE id=?`,
-    c.barcode, c.category, c.type, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
+    c.barcode, c.category, c.type, c.category2, c.type2, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
     c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, nowIso(), id
   );
   const item = getItem(id);

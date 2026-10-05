@@ -57,7 +57,10 @@ export const typeFieldsMap = () =>
 
 // The Categories page: every category and sub-category with how many items use it
 export function listCategories() {
-  const counts = new Map(all('SELECT category, type, COUNT(*) AS n FROM items GROUP BY category, type').map((r) => [`${r.category}/${r.type}`, r.n]));
+  // an item counts under its second category/type as well as its main one
+  const counts = new Map(all(`SELECT category, type, COUNT(*) AS n FROM (
+      SELECT category, type FROM items UNION ALL SELECT category2, type2 FROM items WHERE category2 IS NOT NULL
+    ) GROUP BY category, type`).map((r) => [`${r.category}/${r.type}`, r.n]));
   const types = all('SELECT category, type, fields FROM catalog_types ORDER BY id');
   return all('SELECT name FROM catalog_categories ORDER BY id').map((c) => {
     const list = types.filter((t) => t.category === c.name)
@@ -104,7 +107,7 @@ export function deleteType(categoryRaw, typeRaw) {
   const category = String(categoryRaw ?? '').trim().toUpperCase();
   const type = String(typeRaw ?? '').trim().toLowerCase();
   if (!fieldsFor(category, type)) throw new HttpError(404, 'Sub-category not found');
-  const used = get('SELECT COUNT(*) AS n FROM items WHERE category = ? AND type = ?', category, type).n;
+  const used = get('SELECT COUNT(*) AS n FROM items WHERE (category = ? AND type = ?) OR (category2 = ? AND type2 = ?)', category, type, category, type).n;
   if (used) throw new HttpError(409, `${used} item${used === 1 ? ' is' : 's are'} still in ${category} ${type} — move or delete ${used === 1 ? 'it' : 'them'} first`);
   run('DELETE FROM catalog_types WHERE category = ? AND type = ?', category, type);
   return listCategories();
@@ -113,7 +116,7 @@ export function deleteType(categoryRaw, typeRaw) {
 export function deleteCategory(categoryRaw) {
   const category = String(categoryRaw ?? '').trim().toUpperCase();
   mustExist(category);
-  const used = get('SELECT COUNT(*) AS n FROM items WHERE category = ?', category).n;
+  const used = get('SELECT COUNT(*) AS n FROM items WHERE category = ? OR category2 = ?', category, category).n;
   if (used) throw new HttpError(409, `${used} item${used === 1 ? ' is' : 's are'} still in ${category} — move or delete ${used === 1 ? 'it' : 'them'} first`);
   tx(() => {
     run('DELETE FROM catalog_types WHERE category = ?', category);

@@ -9,6 +9,9 @@ export const connectorDatalist = () =>
 // Which extra boxes a type gets: 'ends' (male + female connector), 'outputs' (distro-style) or 'none'
 export const typeFields = (category, type) => app.meta.typeFields[`${category}/${type}`] || 'none';
 
+const SECOND_ADD = '+ Add a second category and type';
+const SECOND_REMOVE = '✕ Remove the second category';
+
 const typeOptions = (category, selected) =>
   html`${(app.meta.catalog[category] || []).map((t) => html`<option value="${t}" ${t === selected ? 'selected' : ''}>${cap(t)}</option>`)}`;
 
@@ -26,6 +29,8 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
   const hasEnds = typeFields(category, type) === 'ends';
   const isDistro = typeFields(category, type) === 'outputs';
   const outs = outputsOf(item);
+  const second = !!item.category2;
+  const category2 = item.category2 || category;
   const patRequired = item.pat_required === undefined ? !(category === 'SOUND' && type === 'cable') : !!item.pat_required;
   return html`
     ${connectorDatalist()}
@@ -36,8 +41,13 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
       <div class="field"><label for="f-category">Category *</label>
         <select id="f-category" name="category">${Object.keys(app.meta.catalog).map((c) => html`<option ${c === category ? 'selected' : ''}>${c}</option>`)}</select></div>
       <div class="field"><label for="f-type">Type *</label>
-        <select id="f-type" name="type">${typeOptions(category, type)}</select>
-        <span class="hint">Need another one? <a href="#/categories">Add a category or sub-category</a>.</span></div>
+        <select id="f-type" name="type">${typeOptions(category, type)}</select></div>
+      <div class="field" data-second ${second ? '' : 'hidden'}><label for="f-category2">Second category</label>
+        <select id="f-category2" name="category2">${Object.keys(app.meta.catalog).map((c) => html`<option ${c === category2 ? 'selected' : ''}>${c}</option>`)}</select></div>
+      <div class="field" data-second ${second ? '' : 'hidden'}><label for="f-type2">Second type</label>
+        <select id="f-type2" name="type2">${typeOptions(category2, item.type2)}</select></div>
+      <div class="field"><span class="lbl">Two categories?</span>
+        <div><button class="btn secondary small" type="button" data-toggle-second>${second ? SECOND_REMOVE : SECOND_ADD}</button></div></div>
       <div class="field"><label for="f-name">Description</label>
         <input id="f-name" name="name" type="text" value="${item.name || ''}" placeholder="e.g. 10m 16A extension"></div>
       <div class="field" data-ends ${hasEnds ? '' : 'hidden'}><label for="f-male">Male end (connector)</label>
@@ -91,6 +101,19 @@ export function wireItemFields(root) {
     if (box.dataset.autoPat) pat.checked = !(cat.value === 'SOUND' && type.value === 'cable');
   };
   cat.addEventListener('change', () => sync(true));
+
+  // Second category + type, for items that belong in two places: shown by the button, hidden again to remove it
+  const cat2 = $('[name=category2]', box);
+  const type2 = $('[name=type2]', box);
+  cat2.addEventListener('change', () => {
+    type2.innerHTML = (app.meta.catalog[cat2.value] || []).map((t) => `<option value="${esc(t)}">${esc(cap(t))}</option>`).join('');
+  });
+  $('[data-toggle-second]', box).addEventListener('click', (e) => {
+    const show = cat2.closest('[data-second]').hidden;
+    box.querySelectorAll('[data-second]').forEach((f) => { f.hidden = !show; });
+    e.currentTarget.textContent = show ? SECOND_REMOVE : SECOND_ADD;
+    if (show) cat2.focus();
+  });
   type.addEventListener('change', () => sync(false));
 
   // Distro outputs: add / remove lines (the last line is cleared rather than removed)
@@ -115,6 +138,9 @@ export function readItemFields(root) {
   const out = {
     category: v('category').value,
     type: v('type').value,
+    // blank (not left out) when there is no second category, so saving an edit clears one that was removed
+    category2: v('category2').closest('[data-second]').hidden ? '' : v('category2').value,
+    type2: v('category2').closest('[data-second]').hidden ? '' : v('type2').value,
     name: v('name').value.trim(),
     male_connector: v('male_connector')?.value.trim() || '',
     female_connector: v('female_connector')?.value.trim() || '',

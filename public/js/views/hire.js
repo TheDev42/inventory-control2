@@ -1,4 +1,4 @@
-import { api, html, mount, $, debounce, fmtDate, fmtDateTime, plural, toast, notifyChanged } from '../util.js';
+import { api, html, mount, $, cap, debounce, fmtDate, fmtDateTime, plural, toast, notifyChanged } from '../util.js';
 import { errorBox } from '../ui.js';
 
 /* Admin side of the public hire site (the one on port 90).
@@ -83,6 +83,7 @@ export default async function hireView({ el, query, isActive }) {
   }
 
   /* ---------- pictures and wording: browsing view ---------- */
+  const alsoNames = (row) => row.also.map((a) => `${cap(a.category)} ${a.type}`).join(', ');
   const tile = (scope, key, row) => {
     const expanded = open.has(`${scope}:${key}`);
     return html`<div class="hire-tile" data-scope="${scope}" data-key="${key}">
@@ -91,6 +92,7 @@ export default async function hireView({ el, query, isActive }) {
         : PLACEHOLDER}</div>
       <div class="hire-body">
         <div class="hire-name">${row.label}${row.section ? html` <span class="chip">${row.section}</span>` : ''}</div>
+        ${row.also?.length ? html`<div class="muted small-text">${row.hide_secondary ? 'Not shown under' : 'Also shown under'} ${alsoNames(row)}</div>` : ''}
         <div class="muted small-text">${scope === 'subcategory'
           ? `${plural(row.kinds, 'kind')} · ${plural(row.total, 'item')}`
           : [row.details, `${row.available} of ${row.total} free`].filter(Boolean).join(' · ')}</div>
@@ -108,6 +110,9 @@ export default async function hireView({ el, query, isActive }) {
           <span class="hint">Leave blank to use “${row.label}”.</span></div>
         <div class="field"><label>About this ${scope === 'subcategory' ? 'category' : 'item'}</label>
           <textarea data-f="about" rows="5" maxlength="4000" placeholder="What it is, what it is for, anything a customer should know.">${row.about || ''}</textarea></div>
+        ${row.also?.length ? html`<div class="field"><span class="lbl">Second category</span>
+          <label class="check"><input data-f="also" type="checkbox" ${row.hide_secondary ? '' : 'checked'}> Also show under ${alsoNames(row)}</label>
+          <span class="hint">It uses this same picture and wording there. Untick to list it under its main category only.</span></div>` : ''}
         <div class="field"><label>Square picture</label>
           <input data-f="file" type="file" accept="image/png,image/jpeg,image/webp">
           <span class="hint">Any shape works: it is cropped square from the middle and shrunk before saving.</span></div>
@@ -215,6 +220,8 @@ export default async function hireView({ el, query, isActive }) {
   async function saveTile(tileEl) {
     const { scope, key } = tileEl.dataset;
     const body = { label: $('[data-f=label]', tileEl).value, about: $('[data-f=about]', tileEl).value };
+    const also = $('[data-f=also]', tileEl);
+    if (also) body.hideSecondary = !also.checked;
     const file = $('[data-f=file]', tileEl).files[0];
     if (file) body.image = await squareDataUrl(file);
     await api.put(`/api/hire/meta/${scope}/${key}`, body);

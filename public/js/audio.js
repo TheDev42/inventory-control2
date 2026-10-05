@@ -7,9 +7,12 @@
  *   error ....... long low buzz (blocked)      unknown ..... three descending blips (barcode not in system)
  *   out_warn .... "out" chime + low beep (went out, but PAT overdue / never tested)
  *
- * Every note goes through one master chain: volume gain -> soft clipper -> speakers. The boost is far more than
- * the speakers can take cleanly, so the clipper rounds the peaks off instead of letting them crackle — the tones
- * come out much louder (and a little brighter) and stay beeps rather than noise.
+ * These have to be heard over music in a warehouse, so they are built to cut through rather than to sound nice:
+ *   - every note goes through one master chain (volume gain -> clipper -> speakers) and is driven hard into the
+ *     clipper, so at the top of the slider it leaves at the loudest level the device can physically put out;
+ *   - every note also carries a square-wave copy of itself moved up into the 2-4 kHz band, where hearing is
+ *     sharpest, small speakers are most efficient and music has the least going on;
+ *   - notes are held at full level and only fade at the very end, instead of dying away from the start.
  */
 import { store } from './util.js';
 
@@ -18,8 +21,8 @@ let muted = store.get('muted', false);
 let volume = store.get('volume', 0.8);
 let master = null;
 
-const MAX_BOOST = 12; // how many times louder than a note's own level the slider goes at 100%
-const DRIVE = 12;    // the clipper's input range, as a multiple of full scale
+const MAX_BOOST = 40; // how many times louder than a note's own level the slider goes at 100%
+const DRIVE = 40;    // the clipper's input range, as a multiple of full scale
 // Squared, so the slider sweeps from a whisper to the full boost instead of bunching up near the top
 const masterLevel = () => (MAX_BOOST * volume * volume) / DRIVE;
 
@@ -41,6 +44,13 @@ function audio() {
   return ctx;
 }
 
+// Moves a pitch up by whole octaves until it sits in the 2-4 kHz band (the note stays the same, only higher)
+function piercing(freq) {
+  let f = freq;
+  while (f < 2000) f *= 2;
+  return f;
+}
+
 function note(freq, start, dur, { type = 'sine', gain = 0.28 } = {}) {
   const c = audio();
   if (!c) return;
@@ -50,11 +60,19 @@ function note(freq, start, dur, { type = 'sine', gain = 0.28 } = {}) {
   osc.type = type;
   osc.frequency.setValueAtTime(freq, t0);
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.008);
+  g.gain.setValueAtTime(gain, t0 + dur * 0.8);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   osc.connect(g).connect(master);
   osc.start(t0);
   osc.stop(t0 + dur + 0.03);
+  // The same note, octaves up, as a square wave: this is the part that carries over background music
+  const cut = c.createOscillator();
+  cut.type = 'square';
+  cut.frequency.setValueAtTime(piercing(freq), t0);
+  cut.connect(g);
+  cut.start(t0);
+  cut.stop(t0 + dur + 0.03);
 }
 
 const tri = { type: 'triangle' };

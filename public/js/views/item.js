@@ -87,6 +87,8 @@ export default async function itemView({ el, args, isActive }) {
             <dl class="dl">
               <dt>Category</dt><dd>${cap(it.category)}</dd>
               <dt>Type</dt><dd>${cap(it.type)}</dd>
+              ${it.category2 ? html`<dt>Second category</dt><dd>${cap(it.category2)}</dd>
+              <dt>Second type</dt><dd>${cap(it.type2)}</dd>` : ''}
               <dt>Description</dt><dd>${it.name || '—'}</dd>
               <dt>Owner</dt><dd>${app.meta.ownerLabels[it.owner] || it.owner}</dd>
               <dt>Location</dt><dd>${it.location || '—'}</dd>

@@ -162,6 +162,8 @@ ensureColumn('items', 'outputs', 'TEXT');
 ensureColumn('items', 'owner', "TEXT NOT NULL DEFAULT 'company'"); // company | personal
 ensureColumn('items', 'location', 'TEXT'); // where a loose (not containered) item is physically kept, e.g. a different yard
 ensureColumn('items', 'cost', 'REAL'); // what it cost to buy, in GBP — admin info, not shown in the inventory list
+ensureColumn('items', 'category2', 'TEXT'); // optional second category + type, for items that belong in two places (both set, or both NULL)
+ensureColumn('items', 'type2', 'TEXT');
 ensureColumn('containers', 'kind', "TEXT NOT NULL DEFAULT 'permanent'"); // permanent (always used) | temporary (one-off box)
 ensureColumn('rental_items', 'case_id', 'INTEGER REFERENCES containers(id) ON DELETE SET NULL'); // the case this line is packed in for the shipment
 ensureColumn('rentals', 'job_number', 'TEXT'); // JOB-0001, JOB-0002... one counter shared by every rental, however it was created

@@ -55,7 +55,7 @@ export function dashboard() {
 export function overview(ownerFilter) {
   const owner = ownerFilter ? parseOwner(ownerFilter) : null;
   const rows = all(
-    `SELECT category, type, name, male_connector, female_connector, input_connector, outputs, length_m, status, owner, cost
+    `SELECT category, type, category2, type2, name, male_connector, female_connector, input_connector, outputs, length_m, status, owner, cost
      FROM items WHERE status != 'sold' ${owner ? 'AND owner = ?' : ''} ORDER BY id`,
     ...(owner ? [owner] : [])
   );
@@ -66,9 +66,11 @@ export function overview(ownerFilter) {
     const key = kindKey(r); // same hash hire.js and rentals.js use, so a requirement can reference one of these groups directly
     let g = groups.get(key);
     if (!g) {
-      g = { key, category: r.category, type: r.type, outputs: r.outputs, length_m: r.length_m, personal: 0, total: 0, available: 0, on_rental: 0, repair: 0, lost: 0, disassembled: 0, spellings: {} };
+      g = { key, category: r.category, type: r.type, outputs: r.outputs, length_m: r.length_m, personal: 0, total: 0, available: 0, on_rental: 0, repair: 0, lost: 0, disassembled: 0, spellings: {}, also: new Map() };
       groups.set(key, g);
     }
+    // a second category/type on any of its items lists the whole kind under that category as well
+    if (r.category2 && r.type2 && !(r.category2 === g.category && r.type2 === g.type)) g.also.set(`${r.category2}/${r.type2}`, { category: r.category2, type: r.type2 });
     g.total++;
     if (r.owner === 'personal') g.personal++;
     if (r.status === 'in_stock') g.available++;
@@ -79,8 +81,9 @@ export function overview(ownerFilter) {
     }
   }
   const commonest = (m) => (m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : null); // ties: the first one seen
-  const list = [...groups.values()].map(({ spellings, ...g }) => ({
+  const list = [...groups.values()].map(({ spellings, also, ...g }) => ({
     ...g,
+    also: [...also.values()],
     name: commonest(spellings.name), male_connector: commonest(spellings.male_connector),
     female_connector: commonest(spellings.female_connector), input_connector: commonest(spellings.input_connector),
   }));
