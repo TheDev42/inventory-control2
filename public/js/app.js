@@ -15,10 +15,11 @@ import containerView from './views/container.js';
 import patView from './views/pat.js';
 import bulkView from './views/bulk.js';
 import hireView from './views/hire.js';
+import categoriesView from './views/categories.js';
 
 const NAV = [
   ['Overview', [['dashboard', 'Dashboard', '/dashboard'], ['overview', 'Stock overview', '/overview']]],
-  ['Equipment', [['inventory', 'Inventory', '/inventory'], ['bulk', 'Bulk add', '/bulk']]],
+  ['Equipment', [['inventory', 'Inventory', '/inventory'], ['bulk', 'Bulk add', '/bulk'], ['categories', 'Categories', '/categories']]],
   ['Storage', [['containers', 'Containers', '/containers']]],
   ['Rentals', [['rentals', 'Rentals', '/rentals'], ['hire', 'Hire site', '/hire']]],
   ['Compliance', [['pat', 'PAT testing', '/pat']]],
@@ -38,6 +39,7 @@ const ROUTES = [
   [/^\/pat$/, patView, '/pat'],
   [/^\/bulk$/, bulkView, '/bulk'],
   [/^\/hire$/, hireView, '/hire'],
+  [/^\/categories$/, categoriesView, '/categories'],
 ];
 
 let current = null;

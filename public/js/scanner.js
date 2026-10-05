@@ -251,6 +251,7 @@ export function initScanner() {
     if (e.target.id === 'snd-vol') setVolume(Number(e.target.value) / 100);
   });
   el.panel.addEventListener('change', (e) => {
+    if (e.target.id === 'snd-vol') play('lookup', true); // let go of the slider and hear the new level
     if (e.target.id === 'snd-mute') { setMuted(e.target.checked); renderPanel(); }
   });
 }

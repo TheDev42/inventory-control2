@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { all, get, run, tx, db, nowIso, today, logEvent, HttpError, ensureColumn } from './db.js';
 import { cap, formatOutputs, kindKey } from './catalog.js';
 import { createRental as createRentalRow } from './rentals.js';
+import { categoryOrder } from './categories.js';
 
 db.exec(`
 -- Picture, about text, display order and (for an item type) a section label like "16A" or "32A", for a
@@ -220,7 +221,7 @@ export function catalogue({ start, end } = {}) {
     s.total += t.total;
     s.available += t.available;
   }
-  const order = ['POWER', 'LIGHTING', 'SOUND'];
+  const order = categoryOrder();
   const rank = (c) => { const i = order.indexOf(c); return i < 0 ? order.length : i; };
   const list = [...subs.values()].sort(bySortOrder((a, b) => rank(a.category) - rank(b.category) || cmpStr(a.label, b.label)));
   return { subcategories: list, types, dated: isDate(start) && isDate(end), today: today() };

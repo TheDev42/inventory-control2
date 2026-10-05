@@ -6,6 +6,9 @@ import { app } from './state.js';
 export const connectorDatalist = () =>
   html`<datalist id="connector-list">${app.meta.connectors.map((c) => html`<option value="${c}"></option>`)}</datalist>`;
 
+// Which extra boxes a type gets: 'ends' (male + female connector), 'outputs' (distro-style) or 'none'
+export const typeFields = (category, type) => app.meta.typeFields[`${category}/${type}`] || 'none';
+
 const typeOptions = (category, selected) =>
   html`${(app.meta.catalog[category] || []).map((t) => html`<option value="${t}" ${t === selected ? 'selected' : ''}>${cap(t)}</option>`)}`;
 
@@ -18,10 +21,10 @@ const outputRow = (o = { qty: 1, connector: '' }) => html`<div class="output-row
 </div>`;
 
 export function itemFields(item = {}, { barcode = true, containers = [], isNew = false } = {}) {
-  const category = item.category || 'POWER';
-  const type = item.type || app.meta.catalog[category][0];
-  const hasEnds = app.meta.connectorTypes.includes(type);
-  const isDistro = app.meta.outputTypes.includes(type);
+  const category = item.category || Object.keys(app.meta.catalog)[0];
+  const type = item.type || (app.meta.catalog[category] || [])[0];
+  const hasEnds = typeFields(category, type) === 'ends';
+  const isDistro = typeFields(category, type) === 'outputs';
   const outs = outputsOf(item);
   const patRequired = item.pat_required === undefined ? !(category === 'SOUND' && type === 'cable') : !!item.pat_required;
   return html`
@@ -33,7 +36,8 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
       <div class="field"><label for="f-category">Category *</label>
         <select id="f-category" name="category">${Object.keys(app.meta.catalog).map((c) => html`<option ${c === category ? 'selected' : ''}>${c}</option>`)}</select></div>
       <div class="field"><label for="f-type">Type *</label>
-        <select id="f-type" name="type">${typeOptions(category, type)}</select></div>
+        <select id="f-type" name="type">${typeOptions(category, type)}</select>
+        <span class="hint">Need another one? <a href="#/categories">Add a category or sub-category</a>.</span></div>
       <div class="field"><label for="f-name">Description</label>
         <input id="f-name" name="name" type="text" value="${item.name || ''}" placeholder="e.g. 10m 16A extension"></div>
       <div class="field" data-ends ${hasEnds ? '' : 'hidden'}><label for="f-male">Male end (connector)</label>
@@ -78,11 +82,11 @@ export function wireItemFields(root) {
       const list = app.meta.catalog[cat.value] || [];
       const keep = list.includes(type.value) ? type.value : list[0];
       type.innerHTML = list.map((t) => `<option value="${esc(t)}">${esc(cap(t))}</option>`).join('');
-      type.value = keep;
+      type.value = keep ?? '';
     }
-    const hasEnds = app.meta.connectorTypes.includes(type.value);
+    const hasEnds = typeFields(cat.value, type.value) === 'ends';
     box.querySelectorAll('[data-ends]').forEach((f) => { f.hidden = !hasEnds; });
-    const isDistro = app.meta.outputTypes.includes(type.value);
+    const isDistro = typeFields(cat.value, type.value) === 'outputs';
     box.querySelectorAll('[data-distro]').forEach((f) => { f.hidden = !isDistro; });
     if (box.dataset.autoPat) pat.checked = !(cat.value === 'SOUND' && type.value === 'cable');
   };

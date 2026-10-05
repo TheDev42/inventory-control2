@@ -1,7 +1,8 @@
 import {
   all, get, run, tx, today, addDays, addMonths, nowIso, logEvent, HttpError,
 } from './db.js';
-import { CATALOG, CONNECTOR_TYPES, OUTPUT_TYPES, STATUS_LABEL, cap, normalizeBarcode, parseOutputs, formatOutputs, parseOwner } from './catalog.js';
+import { STATUS_LABEL, cap, normalizeBarcode, parseOutputs, formatOutputs, parseOwner } from './catalog.js';
+import { getCatalog, fieldsFor } from './categories.js';
 
 /* ---------- SQL fragments ---------- */
 
@@ -213,12 +214,14 @@ export function cleanItem(d) {
   if (!barcode) throw new HttpError(400, 'Barcode is required');
   const category = String(d.category || '').trim().toUpperCase();
   const type = String(d.type || '').trim().toLowerCase();
-  if (!CATALOG[category]) throw new HttpError(400, `Invalid category "${d.category}" (use ${Object.keys(CATALOG).join(', ')})`);
-  if (!CATALOG[category].includes(type)) {
-    throw new HttpError(400, `Invalid type "${d.type}" for ${category} (use ${CATALOG[category].join(', ')})`);
+  const catalog = getCatalog();
+  if (!catalog[category]) throw new HttpError(400, `Invalid category "${d.category}" (use ${Object.keys(catalog).join(', ')})`);
+  if (!catalog[category].includes(type)) {
+    throw new HttpError(400, `Invalid type "${d.type}" for ${category} (use ${catalog[category].join(', ') || 'none yet — add a sub-category first'})`);
   }
-  const hasConnectors = CONNECTOR_TYPES.has(type);
-  const isDistro = OUTPUT_TYPES.has(type);
+  const fields = fieldsFor(category, type);
+  const hasConnectors = fields === 'ends';
+  const isDistro = fields === 'outputs';
   const owner = parseOwner(d.owner);
   if (!owner) throw new HttpError(400, `Invalid owner "${d.owner}" (use company or me)`);
   const outputs = isDistro ? cleanOutputs(d.outputs) : [];

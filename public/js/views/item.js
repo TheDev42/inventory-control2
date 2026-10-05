@@ -3,7 +3,7 @@ import {
 } from '../util.js';
 import { app } from '../state.js';
 import { state as scanState } from '../scanner.js';
-import { errorBox } from '../ui.js';
+import { errorBox, typeFields } from '../ui.js';
 
 export default async function itemView({ el, args, isActive }) {
   const id = Number(args[0]);
@@ -90,10 +90,10 @@ export default async function itemView({ el, args, isActive }) {
               <dt>Description</dt><dd>${it.name || '—'}</dd>
               <dt>Owner</dt><dd>${app.meta.ownerLabels[it.owner] || it.owner}</dd>
               <dt>Location</dt><dd>${it.location || '—'}</dd>
-              ${app.meta.connectorTypes.includes(it.type) ? html`
+              ${typeFields(it.category, it.type) === 'ends' ? html`
                 <dt>Male end</dt><dd>${it.male_connector || '—'}</dd>
                 <dt>Female end</dt><dd>${it.female_connector || '—'}</dd>` : ''}
-              ${app.meta.outputTypes.includes(it.type) ? html`
+              ${typeFields(it.category, it.type) === 'outputs' ? html`
                 <dt>Input (in)</dt><dd>${it.input_connector || '—'}</dd>
                 <dt>Outputs (out)</dt><dd>${outputsOf(it).length ? html`<ul class="plain">${outputsOf(it).map((o) => html`<li><strong>${o.qty}×</strong> ${o.connector}</li>`)}</ul>` : '—'}</dd>` : ''}
               <dt>Length</dt><dd>${it.length_m != null ? `${it.length_m} m` : '—'}</dd>

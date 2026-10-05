@@ -531,3 +531,11 @@ table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 65
   .sidebar, .scanbar, .toasts, .actions, .toolbar { display: none !important; }
   .app { display: block; }
 }
+
+/* ---------- categories page ---------- */
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+.cat-types { list-style: none; margin: 0 0 14px; padding: 0; }
+.cat-types li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.cat-types li .grow { flex: 1; min-width: 0; }
+.cat-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.cat-add input[type="text"] { flex: 1 1 140px; min-width: 0; }

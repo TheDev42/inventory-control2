@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { all, db, DATA_DIR, HttpError, today } from './db.js';
-import { CATALOG, CONNECTOR_SUGGESTIONS, CONNECTOR_TYPES, OUTPUT_TYPES, STATUSES, STATUS_LABEL, PAT_STATUSES, BARCODE_DIGITS, OWNERS, OWNER_LABEL, formatOutputs } from './catalog.js';
+import { CONNECTOR_SUGGESTIONS, STATUSES, STATUS_LABEL, PAT_STATUSES, BARCODE_DIGITS, OWNERS, OWNER_LABEL, formatOutputs } from './catalog.js';
 import * as items from './items.js';
 import * as rentals from './rentals.js';
 import * as containers from './containers.js';
@@ -14,6 +14,7 @@ import { dashboard, overview } from './dashboard.js';
 import { writeRentalPdf, safeFilename } from './pdf.js';
 import { writeLabelPdf, code128B } from './label.js';
 import * as hire from './hire.js';
+import * as categories from './categories.js';
 import { createHireApp } from './hire-server.js';
 
 const app = express();
@@ -58,9 +59,8 @@ app.get('/api/meta', (_req, res) => {
     if (!seen.has(r.c.toLowerCase())) { seen.add(r.c.toLowerCase()); connectors.push(r.c); }
   }
   res.json({
-    catalog: CATALOG,
-    connectorTypes: [...CONNECTOR_TYPES],
-    outputTypes: [...OUTPUT_TYPES],
+    catalog: categories.getCatalog(),
+    typeFields: categories.typeFieldsMap(),
     statuses: STATUSES,
     statusLabels: STATUS_LABEL,
     owners: OWNERS,
@@ -75,6 +75,13 @@ app.get('/api/meta', (_req, res) => {
 
 app.get('/api/dashboard', (_req, res) => res.json(dashboard()));
 app.get('/api/overview', (req, res) => res.json(overview(req.query.owner)));
+
+/* ---------- categories and their sub-categories (item types) ---------- */
+app.get('/api/categories', (_req, res) => res.json(categories.listCategories()));
+app.post('/api/categories', (req, res) => res.status(201).json(categories.addCategory(req.body || {})));
+app.delete('/api/categories/:category', (req, res) => res.json(categories.deleteCategory(req.params.category)));
+app.post('/api/categories/:category/types', (req, res) => res.status(201).json(categories.addType(req.params.category, req.body || {})));
+app.delete('/api/categories/:category/types/:type', (req, res) => res.json(categories.deleteType(req.params.category, req.params.type)));
 
 /* ---------- scanning ---------- */
 app.post('/api/scan', (req, res) => res.json(handleScan(req.body)));

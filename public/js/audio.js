@@ -6,18 +6,36 @@
  *   lookup ...... single blip                  warn ........ two flat beeps (duplicate / already done)
  *   error ....... long low buzz (blocked)      unknown ..... three descending blips (barcode not in system)
  *   out_warn .... "out" chime + low beep (went out, but PAT overdue / never tested)
+ *
+ * Every note goes through one master chain: volume gain -> soft clipper -> speakers. The boost is far more than
+ * the speakers can take cleanly, so the clipper rounds the peaks off instead of letting them crackle — the tones
+ * come out much louder (and a little brighter) and stay beeps rather than noise.
  */
 import { store } from './util.js';
 
 let ctx = null;
 let muted = store.get('muted', false);
 let volume = store.get('volume', 0.8);
+let master = null;
+
+const MAX_BOOST = 12; // how many times louder than a note's own level the slider goes at 100%
+const DRIVE = 12;    // the clipper's input range, as a multiple of full scale
+// Squared, so the slider sweeps from a whisper to the full boost instead of bunching up near the top
+const masterLevel = () => (MAX_BOOST * volume * volume) / DRIVE;
 
 function audio() {
   if (!ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     ctx = new AC();
+    master = ctx.createGain();
+    master.gain.value = masterLevel();
+    const clip = ctx.createWaveShaper();
+    const curve = new Float32Array(4097);
+    for (let i = 0; i < curve.length; i++) curve[i] = Math.tanh(((i / (curve.length - 1)) * 2 - 1) * DRIVE);
+    clip.curve = curve;
+    clip.oversample = '4x';
+    master.connect(clip).connect(ctx.destination);
   }
   if (ctx.state === 'suspended') ctx.resume();
   return ctx;
@@ -32,9 +50,9 @@ function note(freq, start, dur, { type = 'sine', gain = 0.28 } = {}) {
   osc.type = type;
   osc.frequency.setValueAtTime(freq, t0);
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * volume), t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  osc.connect(g).connect(c.destination);
+  osc.connect(g).connect(master);
   osc.start(t0);
   osc.stop(t0 + dur + 0.03);
 }
@@ -61,6 +79,10 @@ export function play(name, force = false) {
 export const isMuted = () => muted;
 export function setMuted(v) { muted = !!v; store.set('muted', muted); }
 export const getVolume = () => volume;
-export function setVolume(v) { volume = Math.min(1, Math.max(0.05, v)); store.set('volume', volume); }
+export function setVolume(v) {
+  volume = Math.min(1, Math.max(0.05, v));
+  store.set('volume', volume);
+  if (master) master.gain.value = masterLevel();
+}
 // Browsers only allow audio after a user gesture; scanner keystrokes count, so this "unlocks" on the first key/click.
 export const unlockAudio = () => { audio(); };
