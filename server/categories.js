@@ -22,7 +22,10 @@ CREATE TABLE IF NOT EXISTS catalog_types (
 `);
 
 export const FIELD_KINDS = ['none', 'ends', 'outputs'];
-const defaultFields = (type) => (CONNECTOR_TYPES.has(type) ? 'ends' : OUTPUT_TYPES.has(type) ? 'outputs' : 'none');
+// Lighting fixtures, effects and controllers have a mains/DMX plug in and out, so they get a male + female end too
+const LIGHTING_ENDS = /^(lights?|fixtures?|effects?|fx|controllers?|controls?|consoles?)$/;
+const defaultFields = (type, category) => (CONNECTOR_TYPES.has(type) || (category === 'LIGHTING' && LIGHTING_ENDS.test(type))
+  ? 'ends' : OUTPUT_TYPES.has(type) ? 'outputs' : 'none');
 
 // First run: start from the built-in set. Anything already on an item (an older database) is kept usable too.
 if (!get('SELECT 1 AS x FROM catalog_categories LIMIT 1')) {
@@ -32,8 +35,20 @@ if (!get('SELECT 1 AS x FROM catalog_categories LIMIT 1')) {
     for (const c of Object.keys(CATALOG)) run('INSERT OR IGNORE INTO catalog_categories (name) VALUES (?)', c);
     for (const [c, t] of pairs) {
       run('INSERT OR IGNORE INTO catalog_categories (name) VALUES (?)', c);
-      run('INSERT OR IGNORE INTO catalog_types (category, type, fields) VALUES (?, ?, ?)', c, t, defaultFields(t));
+      run('INSERT OR IGNORE INTO catalog_types (category, type, fields) VALUES (?, ?, ?)', c, t, defaultFields(t, c));
     }
+  });
+}
+
+// One-off upgrade: lighting lights / effects / controllers made before they had connectors get a male + female end.
+// Done once only (remembered in app_flags), so switching one back to "No connectors" afterwards sticks.
+db.exec('CREATE TABLE IF NOT EXISTS app_flags (name TEXT PRIMARY KEY, done_at TEXT NOT NULL)');
+if (!get(`SELECT 1 AS x FROM app_flags WHERE name = 'lighting_ends'`)) {
+  tx(() => {
+    for (const t of all(`SELECT type FROM catalog_types WHERE category = 'LIGHTING' AND fields = 'none'`)) {
+      if (LIGHTING_ENDS.test(t.type)) run(`UPDATE catalog_types SET fields = 'ends' WHERE category = 'LIGHTING' AND type = ?`, t.type);
+    }
+    run(`INSERT INTO app_flags (name, done_at) VALUES ('lighting_ends', ?)`, new Date().toISOString());
   });
 }
 
@@ -95,10 +110,22 @@ export function addType(categoryRaw, d) {
   const category = String(categoryRaw ?? '').trim().toUpperCase();
   mustExist(category);
   const type = typeName(d.name);
-  const fields = d.fields === undefined || d.fields === '' ? defaultFields(type) : String(d.fields);
+  const fields = d.fields === undefined || d.fields === '' ? defaultFields(type, category) : String(d.fields);
   if (!FIELD_KINDS.includes(fields)) throw new HttpError(400, `Invalid connector option "${d.fields}"`);
   if (fieldsFor(category, type)) throw new HttpError(409, `${category} already has a sub-category called ${type}`);
   run('INSERT INTO catalog_types (category, type, fields) VALUES (?, ?, ?)', category, type, fields);
+  return listCategories();
+}
+
+// Changes which connector boxes a sub-category's items get. Items already in it keep whatever they have stored;
+// the boxes just show (or stop showing) on their form.
+export function setTypeFields(categoryRaw, typeRaw, fieldsRaw) {
+  const category = String(categoryRaw ?? '').trim().toUpperCase();
+  const type = String(typeRaw ?? '').trim().toLowerCase();
+  if (!fieldsFor(category, type)) throw new HttpError(404, 'Sub-category not found');
+  const fields = String(fieldsRaw ?? '');
+  if (!FIELD_KINDS.includes(fields)) throw new HttpError(400, `Invalid connector option "${fieldsRaw}"`);
+  run('UPDATE catalog_types SET fields = ? WHERE category = ? AND type = ?', fields, category, type);
   return listCategories();
 }
 

@@ -2,12 +2,13 @@ import { api, html, mount, $, cap, toast, plural } from '../util.js';
 import { loadMeta } from '../state.js';
 
 // Which extra boxes an item of a sub-category gets on its form
+// Shorter wording for the drop-down on each existing sub-category, where there is less room
+const SHORT = { none: 'No connectors', ends: 'Male + female end', outputs: 'Input + outputs' };
 const FIELDS = [
   ['none', 'No connectors'],
   ['ends', 'Male + female end (cables, adapters)'],
   ['outputs', 'Input + list of outputs (distros)'],
 ];
-const FIELD_NOTE = { none: '', ends: 'male + female end', outputs: 'input + outputs' };
 
 export default async function categoriesView({ el, isActive }) {
   let list = [];
@@ -33,7 +34,8 @@ export default async function categoriesView({ el, isActive }) {
           <span class="muted small-text">${plural(c.items, 'item')}</span>
         </div>
         ${c.types.length ? html`<ul class="cat-types">${c.types.map((t) => html`<li>
-          <span class="grow"><strong>${cap(t.type)}</strong>${FIELD_NOTE[t.fields] ? html` <span class="muted small-text">· ${FIELD_NOTE[t.fields]}</span>` : ''}</span>
+          <span class="grow"><strong>${cap(t.type)}</strong></span>
+          <select class="cat-fields" data-fields-type="${t.type}" aria-label="Connectors for ${t.type}">${FIELDS.map(([v]) => html`<option value="${v}" ${t.fields === v ? 'selected' : ''}>${SHORT[v]}</option>`)}</select>
           <span class="muted small-text">${plural(t.items, 'item')}</span>
           <button class="btn ghost small" type="button" data-del-type="${t.type}" ${t.items ? 'disabled' : ''} title="${t.items ? 'Still has items in it' : 'Delete this sub-category'}" aria-label="Delete ${t.type}">✕</button>
         </li>`)}</ul>` : html`<p class="muted small-text">No sub-categories yet — add one below before putting items in this category.</p>`}
@@ -78,6 +80,16 @@ export default async function categoriesView({ el, isActive }) {
     const ok = await apply(api.post(`/api/categories/${encodeURIComponent(category)}/types`, { name, fields: form.elements.fields.value }),
       `${cap(name)} added to ${category}`);
     if (ok) $(`[data-category="${CSS.escape(category)}"] [data-add-type] [name=name]`, el)?.focus();
+  });
+  // Changing an existing sub-category's connector boxes
+  listEl.addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-fields-type]');
+    if (!sel) return;
+    const category = sel.closest('[data-category]').dataset.category;
+    const type = sel.dataset.fieldsType;
+    const label = SHORT[sel.value];
+    if (!await apply(api.put(`/api/categories/${encodeURIComponent(category)}/types/${encodeURIComponent(type)}`, { fields: sel.value }),
+      `${cap(type)} now has: ${label.toLowerCase()}`)) render();
   });
   listEl.addEventListener('click', async (e) => {
     const card = e.target.closest('[data-category]');

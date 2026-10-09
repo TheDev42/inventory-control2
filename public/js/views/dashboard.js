@@ -105,7 +105,7 @@ export default async function dashboardView({ el, isActive }) {
           <div class="card-head"><h2>Needs attention</h2></div>
           ${d.attention.length || d.patAttention.length ? html`<div class="table-wrap"><table class="data"><tbody>
             ${d.attention.map((it) => html`<tr class="clickable" onclick="location.hash='#/items/${it.id}'">
-              <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td><td>${itemTitle(it)}</td><td>${statusBadge(it.status)}</td></tr>`)}
+              <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td><td>${itemTitle(it)}${it.flag_note ? html`<div class="cell-sub">${it.flag_note}</div>` : ''}</td><td>${statusBadge(it.status)}</td></tr>`)}
             ${d.patAttention.map((it) => html`<tr class="clickable" onclick="location.hash='#/items/${it.id}'">
               <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td><td>${itemTitle(it)}</td><td>${patBadge(it.pat_status)}</td></tr>`)}
           </tbody></table></div>`

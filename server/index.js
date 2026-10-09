@@ -11,7 +11,7 @@ import * as rentals from './rentals.js';
 import * as containers from './containers.js';
 import { handleScan } from './scan.js';
 import { dashboard, overview } from './dashboard.js';
-import { writeRentalPdf, safeFilename } from './pdf.js';
+import { writeRentalPdf, pdfName, safeFilename } from './pdf.js';
 import { writeLabelPdf, code128B } from './label.js';
 import * as hire from './hire.js';
 import * as categories from './categories.js';
@@ -82,6 +82,7 @@ app.post('/api/categories', (req, res) => res.status(201).json(categories.addCat
 app.delete('/api/categories/:category', (req, res) => res.json(categories.deleteCategory(req.params.category)));
 app.post('/api/categories/:category/types', (req, res) => res.status(201).json(categories.addType(req.params.category, req.body || {})));
 app.delete('/api/categories/:category/types/:type', (req, res) => res.json(categories.deleteType(req.params.category, req.params.type)));
+app.put('/api/categories/:category/types/:type', (req, res) => res.json(categories.setTypeFields(req.params.category, req.params.type, req.body?.fields)));
 
 /* ---------- scanning ---------- */
 app.post('/api/scan', (req, res) => res.json(handleScan(req.body)));
@@ -154,17 +155,18 @@ app.post('/api/rentals/:id/requirements', (req, res) => res.status(201).json(ren
 app.put('/api/rentals/:id/requirements/:reqId', (req, res) => res.json(rentals.updateRequirementQty(id(req), parseInt(req.params.reqId, 10), req.body?.qty)));
 app.delete('/api/rentals/:id/requirements/:reqId', (req, res) => res.json(rentals.removeRequirement(id(req), parseInt(req.params.reqId, 10))));
 // Two PDFs per rental: the internal hire sheet (barcodes, PAT, return boxes) and the client copy (quantities only).
-const sendRentalPdf = (mode, prefix) => (req, res) => {
+const sendRentalPdf = (mode, label) => (req, res) => {
   const { rental, items: rows } = rentals.rentalDetail(id(req));
   res.set({
     'Content-Type': 'application/pdf',
-    'Content-Disposition': `attachment; filename="${prefix}-${safeFilename(rental.name)}.pdf"`,
+    // Opens in the browser's PDF viewer (still named properly if saved from there); ?download=1 downloads it instead
+    'Content-Disposition': `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${pdfName(rental, label)}"`,
   });
   // Upright A4 by default; ?orientation=landscape gives the wide layout
   writeRentalPdf(res, { rental, items: rows, company: COMPANY, mode, orientation: req.query.orientation === 'landscape' ? 'landscape' : 'portrait' });
 };
-app.get('/api/rentals/:id/pdf', sendRentalPdf('internal', 'internal-hire-sheet'));
-app.get('/api/rentals/:id/client-pdf', sendRentalPdf('client', 'client-hire-list'));
+app.get('/api/rentals/:id/pdf', sendRentalPdf('internal', 'Internal'));
+app.get('/api/rentals/:id/client-pdf', sendRentalPdf('client', 'Client'));
 
 /* ---------- containers ---------- */
 app.get('/api/containers', (req, res) => res.json(containers.listContainers(req.query.q, req.query.kind, req.query.closed === '1')));

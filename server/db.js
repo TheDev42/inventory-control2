@@ -166,21 +166,28 @@ ensureColumn('items', 'category2', 'TEXT'); // optional second category + type, 
 ensureColumn('items', 'type2', 'TEXT');
 ensureColumn('containers', 'kind', "TEXT NOT NULL DEFAULT 'permanent'"); // permanent (always used) | temporary (one-off box)
 ensureColumn('rental_items', 'case_id', 'INTEGER REFERENCES containers(id) ON DELETE SET NULL'); // the case this line is packed in for the shipment
-ensureColumn('rentals', 'job_number', 'TEXT');
-ensureColumn('rental_requirements', 'member_keys', 'TEXT'); // JSON list of kind keys: a combined hire-site item, filled by any of them // JOB-0001, JOB-0002... one counter shared by every rental, however it was created
+ensureColumn('rentals', 'job_number', 'TEXT'); // JOB-0001, JOB-0002... one counter shared by every rental, however it was created
+ensureColumn('rental_requirements', 'member_keys', 'TEXT'); // JSON list of kind keys: a combined hire-site item, filled by any of them
+
+// A short-lived version wrote job numbers as JOB0001; put any of those back to JOB-0001
+db.exec(`UPDATE rentals SET job_number = 'JOB-' || SUBSTR(job_number, 4) WHERE job_number GLOB 'JOB[0-9]*'`);
+
+// The number part of the highest job number so far (0 when there are none)
+const maxJob = () => db.prepare(
+  `SELECT MAX(CAST(SUBSTR(job_number, 5) AS INTEGER)) AS n FROM rentals WHERE job_number LIKE 'JOB-%'`
+).get().n || 0;
+const jobCode = (n) => `JOB-${String(n).padStart(4, '0')}`;
 
 // Rentals from before job numbers existed are backfilled once, in creation order, so the counter carries
 // on from history instead of leaving old rentals blank.
 {
   const unnumbered = db.prepare('SELECT id FROM rentals WHERE job_number IS NULL ORDER BY id').all();
   if (unnumbered.length) {
-    const maxExisting = db.prepare(
-      `SELECT MAX(CAST(SUBSTR(job_number, 5) AS INTEGER)) AS n FROM rentals WHERE job_number LIKE 'JOB-%'`
-    ).get().n || 0;
+    const maxExisting = maxJob();
     const setJob = db.prepare('UPDATE rentals SET job_number = ? WHERE id = ?');
     db.exec('BEGIN IMMEDIATE');
     try {
-      unnumbered.forEach((r, i) => setJob.run(`JOB-${String(maxExisting + i + 1).padStart(4, '0')}`, r.id));
+      unnumbered.forEach((r, i) => setJob.run(jobCode(maxExisting + i + 1), r.id));
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
@@ -193,8 +200,7 @@ ensureColumn('rental_requirements', 'member_keys', 'TEXT'); // JSON list of kind
 // concurrent creates can never be handed the same number (node:sqlite's calls are synchronous, so there
 // is no interleaving within a single BEGIN IMMEDIATE ... COMMIT).
 export function nextJobNumber() {
-  const n = (db.prepare(`SELECT MAX(CAST(SUBSTR(job_number, 5) AS INTEGER)) AS n FROM rentals WHERE job_number LIKE 'JOB-%'`).get().n || 0) + 1;
-  return `JOB-${String(n).padStart(4, '0')}`;
+  return jobCode(maxJob() + 1);
 }
 
 const norm = (params) =>

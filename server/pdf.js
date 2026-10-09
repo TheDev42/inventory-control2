@@ -73,6 +73,13 @@ const fmtShort = (iso) => {
   return `${d}/${m}/${y}`;
 };
 
+// JOB0001-Internal-Summer_festival_main_stage.pdf / JOB0001-Client-…: the same pattern for every hire sheet.
+// Only the file name drops the dash; the job number itself (and on the sheet) stays JOB-0001.
+export function pdfName(rental, label) {
+  const job = safeFilename(String(rental.job_number || '').replace(/^JOB-/i, 'JOB'));
+  return `${rental.job_number ? `${job}-` : ''}${label}-${safeFilename(rental.name)}.pdf`;
+}
+
 export function safeFilename(name) {
   return String(name || 'rental').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'rental';
 }

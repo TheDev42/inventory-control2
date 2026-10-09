@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { HttpError, today } from './db.js';
 import * as hire from './hire.js';
-import { writeRentalPdf, safeFilename } from './pdf.js';
+import { writeRentalPdf, pdfName } from './pdf.js';
 
 const hireDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'hire');
 
@@ -121,7 +121,7 @@ export function createHireApp() {
     const { rental, items } = hire.requestPdfData(req.params.reference);
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="hire-sheet-${safeFilename(rental.job_number)}.pdf"`,
+      'Content-Disposition': `attachment; filename="${pdfName(rental, 'Client')}"`,
     });
     writeRentalPdf(res, { rental, items, company: COMPANY, mode: 'client' });
   });

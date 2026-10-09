@@ -38,9 +38,11 @@ export function dashboard() {
      ORDER BY (r.end_date IS NULL), r.end_date, r.id DESC LIMIT 12`
   ).map((r) => ({ ...r, overdue: !!r.end_date && r.end_date < t }));
 
+  // The note typed when it was flagged ("Marked REPAIR: fuse blown" -> "fuse blown"), from its latest marker comment
   const attention = all(
-    `${itemSelect()} WHERE i.status IN ('lost','repair','disassembled') ORDER BY i.updated_at DESC LIMIT 10`
-  );
+    `${itemSelect(`(SELECT cm.text FROM comments cm WHERE cm.item_id = i.id AND cm.kind = 'marker' ORDER BY cm.id DESC LIMIT 1) AS flag_text`)}
+     WHERE i.status IN ('lost','repair','disassembled') ORDER BY i.updated_at DESC LIMIT 10`
+  ).map(({ flag_text: text, ...it }) => ({ ...it, flag_note: text ? text.replace(/^Marked [A-Z ]+(?::\s*)?/, '').trim() || null : null }));
   const patAttention = all(
     `${itemSelect()} WHERE ${patCase()} IN ('overdue','failed') ORDER BY i.next_pat_due LIMIT 8`
   );
