@@ -1,4 +1,4 @@
-import { api, html, mount, $, toast, notifyChanged, plural, normalizeBarcode } from '../util.js';
+import { api, html, mount, $, toast, notifyChanged, plural, normalizeBarcode, fmtDate, fmtDateTime, itemTitle } from '../util.js';
 import { state as scanState, setMode } from '../scanner.js';
 import { errorBox, itemsTable } from '../ui.js';
 import { app } from '../state.js';
@@ -13,8 +13,9 @@ export default async function containerView({ el, args, isActive }) {
     let d;
     try { d = await api.get(`/api/containers/${id}`); } catch (err) { if (isActive()) mount(el, errorBox(err)); return; }
     if (!isActive()) return;
-    const { container: c, items, onRental } = d;
-    if (!entered) { setMode('store', { containerId: id }); entered = true; }
+    const { container: c, items, onRental, history, closedContents } = d;
+    const closed = !!c.closed_at;
+    if (!entered) { if (!closed) setMode('store', { containerId: id }); entered = true; }
     const storing = scanState.mode === 'store' && scanState.containerId === id;
     const out = items.filter((i) => i.status === 'on_rental').length;
 
@@ -22,14 +23,15 @@ export default async function containerView({ el, args, isActive }) {
       <div class="crumbs"><a href="#/containers">Containers</a> / ${c.name}</div>
       <div class="page-head">
         <div>
-          <h1>${c.name} ${c.kind === 'temporary' ? html`<span class="badge st-temp" style="vertical-align:middle"><span class="ico">◷</span>Temporary box</span>` : ''}</h1>
+          <h1>${c.name} ${closed ? html`<span class="badge pat-na" style="vertical-align:middle"><span class="ico">✓</span>Closed</span>` : ''}${c.kind === 'temporary' ? html` <span class="badge st-temp" style="vertical-align:middle"><span class="ico">◷</span>Temporary box</span>` : ''}</h1>
           <div class="sub"><span class="barcode">${c.barcode}</span>${onRental ? html` · <span class="badge st-rental"><span class="ico">➜</span>Out</span> on <a href="#/rentals/${onRental.id}">${onRental.name}</a>` : ''}${c.location ? html` · ${c.location}` : ''} · ${plural(items.length, 'item')}${out ? ` (${out} out on rental)` : ''}</div>
           ${c.notes ? html`<div class="muted" style="margin-top:6px;white-space:pre-wrap">${c.notes}</div>` : ''}
         </div>
         <div class="actions">
-          <button class="btn" data-act="label" aria-pressed="${String(!!label)}" title="Print a 4 x 6 inch label for this case: FaderUp logo, barcode and contents">Print label</button>
+          ${closed ? '' : html`<button class="btn" data-act="label" aria-pressed="${String(!!label)}" title="Print a 4 x 6 inch label for this case: FaderUp logo, barcode and contents">Print label</button>
           <button class="btn secondary" data-act="edit">Edit</button>
           ${items.length ? html`<button class="btn secondary" data-act="empty">Empty container</button>` : ''}
+          ${c.kind === 'temporary' ? html`<button class="btn secondary" data-act="close" title="Finished with this box for good: it is kept with a record of what was in it, but can't be used again and its number is never reused">Close box</button>` : ''}`}
           <button class="btn danger" data-act="delete">Delete</button>
         </div>
       </div>
@@ -67,24 +69,39 @@ export default async function containerView({ el, args, isActive }) {
         </div>
       </form>` : ''}
 
-      <div class="notice">
+      ${closed ? html`<div class="notice warn">Closed ${fmtDateTime(c.closed_at)}. This box can't be scanned, packed or used on a rental again, and its number (${c.barcode}) will never be given to a new box. What was in it is listed below.</div>` : html`<div class="notice">
         <div class="actions" style="justify-content:space-between">
           <span class="live-note"><span class="live-dot"></span>
             <span>${storing ? html`<strong>Scanning items into this container.</strong> Scan a lost or disassembled item to recover it automatically.` : html`Scanner is in <strong>${scanState.mode}</strong> mode.`}</span></span>
           <button class="tab" style="background:var(--surface)" data-scan="store" aria-pressed="${String(storing)}">Scan items into ${c.name}</button>
         </div>
-      </div>
+      </div>`}
 
-      <div class="card">
+      ${closed ? html`<div class="card">
+        <div class="card-head"><h2>In it when it was closed</h2><span class="muted small-text">${plural(closedContents.length, 'item')}</span></div>
+        ${closedContents.length ? html`<div class="table-wrap"><table class="data">
+          <thead><tr><th>Barcode</th><th>Item</th></tr></thead>
+          <tbody>${closedContents.map((it) => html`<tr><td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td><td>${it.description}</td></tr>`)}</tbody></table></div>`
+          : html`<div class="empty">It was empty when it was closed.</div>`}
+      </div>` : html`<div class="card">
         <div class="card-head"><h2>Contents</h2>
-          <span class="muted small-text">Scanning this container's barcode in Scan OUT mode adds everything in it to the rental.</span></div>
+          <span class="muted small-text">Scanning this container's barcode in Scan OUT mode (or adding it to a rental) sends everything in it out on the rental${onRental ? html`. It's on <a href="#/rentals/${onRental.id}">${onRental.name}</a>, so anything you scan into it now goes onto that rental too` : ''}.</span></div>
         ${itemsTable(items, {
           empty: 'Empty — scan items to put them in this container.',
           extraHead: [''],
           extra: (it) => [html`<button class="btn ghost small" data-remove="${it.id}">Remove</button>`],
           rowClass: (it) => (it.status === 'on_rental' ? 'is-out' : ''),
         })}
-      </div>`);
+      </div>`}
+
+      ${history.length ? html`<div class="card" style="margin-top:16px">
+        <div class="card-head"><h2>Rentals it has been on</h2><span class="muted small-text">What was packed in it on each job</span></div>
+        ${history.map((r) => html`<div class="case-history">
+          <div><a href="#/rentals/${r.id}"><strong>${r.job_number ? `${r.job_number} · ` : ''}${r.name}</strong></a>
+            <span class="muted small-text">${r.customer ? `${r.customer} · ` : ''}${r.start_date ? fmtDate(r.start_date) : fmtDate(r.added_at)}${r.status === 'completed' ? ' · completed' : ''} · ${plural(r.items.length, 'item')}</span></div>
+          ${r.items.length ? html`<ul class="case-history-items">${r.items.map((it) => html`<li><a class="barcode" href="#/items/${it.id}">${it.barcode}</a> ${itemTitle(it)}${it.name ? html` <span class="muted">${it.name}</span>` : ''}${it.outcome === 'lost' ? html` <span class="badge st-lost">Lost</span>` : ''}</li>`)}</ul>` : ''}
+        </div>`)}
+      </div>` : ''}`);
   }
 
   async function run(fn, okMsg) {
@@ -118,6 +135,14 @@ export default async function containerView({ el, args, isActive }) {
         a.click();
         a.remove();
       } else window.open(`/api/containers/${id}/label.pdf?${p}`, '_blank');
+    } else if (act === 'close') {
+      if (!confirm('Close this temporary box for good? Anything still in it goes back to loose stock (it is written down here first). The box stays on the Closed tab with its history, but can never be used again and its number is not reused.')) return;
+      try {
+        await api.post(`/api/containers/${id}/close`);
+        toast('Box closed', 'ok');
+        if (scanState.containerId === id) setMode('lookup', { containerId: null });
+        notifyChanged();
+      } catch (err) { toast(err.message, 'error', 6000); }
     } else if (act === 'empty') {
       if (confirm('Take every item out of this container? (They stay in inventory.)')) run(() => api.post(`/api/containers/${id}/empty`), 'Container emptied');
     } else if (act === 'delete') {

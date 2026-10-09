@@ -166,7 +166,8 @@ ensureColumn('items', 'category2', 'TEXT'); // optional second category + type, 
 ensureColumn('items', 'type2', 'TEXT');
 ensureColumn('containers', 'kind', "TEXT NOT NULL DEFAULT 'permanent'"); // permanent (always used) | temporary (one-off box)
 ensureColumn('rental_items', 'case_id', 'INTEGER REFERENCES containers(id) ON DELETE SET NULL'); // the case this line is packed in for the shipment
-ensureColumn('rentals', 'job_number', 'TEXT'); // JOB-0001, JOB-0002... one counter shared by every rental, however it was created
+ensureColumn('rentals', 'job_number', 'TEXT');
+ensureColumn('rental_requirements', 'member_keys', 'TEXT'); // JSON list of kind keys: a combined hire-site item, filled by any of them // JOB-0001, JOB-0002... one counter shared by every rental, however it was created
 
 // Rentals from before job numbers existed are backfilled once, in creation order, so the counter carries
 // on from history instead of leaving old rentals blank.

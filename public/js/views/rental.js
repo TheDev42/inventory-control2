@@ -130,7 +130,7 @@ export default async function rentalView({ el, args, isActive }) {
 
       ${active || cases.length ? html`<section class="card cases-panel">
         <div class="card-head"><h2>Cases</h2>
-          <span class="muted small-text">Organise the shipment: pack lines into cases below. Your permanent cases and temporary boxes can both be used.${items.length ? ` ${noCase} of ${items.length} not in a case yet.` : ''}</span></div>
+          <span class="muted small-text">Organise the shipment: pack lines into cases below. Your permanent cases and temporary boxes can both be used. Adding a case brings everything stored in it onto the rental, and anything scanned into it later follows.${items.length ? ` ${noCase} of ${items.length} not in a case yet.` : ''}</span></div>
         ${cases.length ? html`<div class="case-list">${cases.map((c) => html`
           <div class="case-row ${caseFilter === String(c.container_id) ? 'on' : ''}">
             <div class="case-main"><a href="#/containers/${c.container_id}"><strong>${c.name}</strong></a> ${c.kind === 'temporary' ? tempBadge : ''} <span class="barcode small-text">${c.barcode}</span></div>
@@ -269,7 +269,13 @@ export default async function rentalView({ el, args, isActive }) {
     } else if (act === 'case-add') {
       const v = $('#case-add', el).value;
       if (!v) { toast('Choose a case to add first', 'info'); return; }
-      run(() => api.post(`/api/rentals/${id}/cases`, { caseId: Number(v) }), 'Case added to the rental');
+      try {
+        const res = await api.post(`/api/rentals/${id}/cases`, { caseId: Number(v) });
+        const msg = `Case added to the rental${res.added ? `, with ${plural(res.added, 'item')} stored in it` : ''}`;
+        if (res.problems.length) toast(`${msg}. ${res.problems.length} could not go out: ${res.problems.slice(0, 3).join('; ')}${res.problems.length > 3 ? '…' : ''}`, 'error', 8000);
+        else toast(msg, 'ok');
+        notifyChanged();
+      } catch (err) { toast(err.message, 'error', 5000); }
     } else if (act === 'case-new') {
       run(async () => {
         const box = await newTempBox();

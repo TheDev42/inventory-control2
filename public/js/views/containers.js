@@ -1,9 +1,9 @@
-import { api, html, mount, $, debounce, toast, notifyChanged, plural, normalizeBarcode } from '../util.js';
+import { api, html, mount, $, debounce, toast, notifyChanged, plural, normalizeBarcode, fmtDate } from '../util.js';
 import { setInterceptor } from '../scanner.js';
 import { play } from '../audio.js';
 import { app } from '../state.js';
 
-const TABS = [['permanent', 'Permanent cases'], ['temporary', 'Temporary boxes'], ['all', 'All']];
+const TABS = [['permanent', 'Permanent cases'], ['temporary', 'Temporary boxes'], ['closed', 'Closed'], ['all', 'All']];
 
 export default async function containersView({ el, query, isActive }) {
   let q = '';
@@ -30,7 +30,7 @@ export default async function containersView({ el, query, isActive }) {
     <div class="toolbar">
       <div class="tabs" id="container-tabs" style="margin:0"></div>
       <div class="grow"><input type="search" id="container-q" placeholder="Search containers…" aria-label="Search containers"></div>
-      <button class="btn secondary small" id="clear-temp" type="button" hidden title="Delete temporary boxes that were used on a rental, are now empty and are not on an active rental">Clear finished temporary boxes</button>
+      <button class="btn secondary small" id="clear-temp" type="button" hidden title="Close temporary boxes that were used on a rental, are now empty and are not on an active rental. They are kept on the Closed tab with what was in them.">Close finished temporary boxes</button>
     </div>
     <div id="container-list"></div>`);
 
@@ -45,8 +45,8 @@ export default async function containersView({ el, query, isActive }) {
     nameInput.required = !temp;
     $('#c-bc-req', el).textContent = temp ? '(optional)' : '*';
     $('#c-name-req', el).textContent = temp ? '(optional)' : '*';
-    barcode.placeholder = temp ? 'leave blank to number it automatically (T0001…)' : 'e.g. 90001 (scan or type)';
-    $('#c-bc-hint', el).textContent = temp ? 'Leave it blank and the box gets the next free T-number.' : 'You can scan straight into this page.';
+    barcode.placeholder = temp ? 'leave blank to give it the next new T-number' : 'e.g. 90001 (scan or type)';
+    $('#c-bc-hint', el).textContent = temp ? 'Leave it blank and the box gets a T-number that has never been used before.' : 'You can scan straight into this page.';
   };
   form.addEventListener('change', (e) => { if (e.target.name === 'kind') syncKind(); });
 
@@ -82,32 +82,35 @@ export default async function containersView({ el, query, isActive }) {
   });
 
   async function load() {
-    const all = await api.get('/api/containers' + (q ? `?q=${encodeURIComponent(q)}` : ''));
+    const all = await api.get('/api/containers?closed=1' + (q ? `&q=${encodeURIComponent(q)}` : ''));
     if (!isActive()) return;
-    const counts = { all: all.length, permanent: 0, temporary: 0 };
-    all.forEach((c) => { counts[c.kind]++; });
-    const list = tab === 'all' ? all : all.filter((c) => c.kind === tab);
+    // closed boxes only show on their own tab (and under All)
+    const tabOf = (c) => (c.closed_at ? 'closed' : c.kind);
+    const counts = { all: all.length, permanent: 0, temporary: 0, closed: 0 };
+    all.forEach((c) => { counts[tabOf(c)]++; });
+    const list = tab === 'all' ? all : all.filter((c) => tabOf(c) === tab);
     mount($('#container-tabs', el), html`${TABS.map(([k, l]) => html`<button class="tab" type="button" data-tab="${k}" aria-pressed="${String(tab === k)}">${l}<span class="count">${counts[k]}</span></button>`)}`);
-    $('#clear-temp', el).hidden = tab === 'permanent' || !counts.temporary;
+    $('#clear-temp', el).hidden = tab !== 'temporary' && tab !== 'all' || !counts.temporary;
     const emptyText = q ? 'No containers match.'
       : tab === 'temporary' ? 'No temporary boxes. Make one from “New container”, or from a rental’s Cases panel.'
+      : tab === 'closed' ? 'No closed boxes. Close a temporary box from its page once its job is done; it stays here with what was in it.'
       : 'No containers yet. Click “New container” and scan its barcode.';
     mount($('#container-list', el), list.length ? html`<div class="table-wrap cards containers-table"><table class="data">
       <thead><tr><th>Name</th><th>Barcode</th><th>Location</th><th class="num">Items</th><th>Now</th></tr></thead>
       <tbody>${list.map((c) => html`<tr class="clickable" data-id="${c.id}">
-        <td><a href="#/containers/${c.id}"><strong>${c.name}</strong></a>${c.kind === 'temporary' ? html` <span class="badge st-temp"><span class="ico">◷</span>Temporary</span>` : ''}</td>
+        <td><a href="#/containers/${c.id}"><strong>${c.name}</strong></a>${c.closed_at ? html` <span class="badge pat-na"><span class="ico">✓</span>Closed</span>` : c.kind === 'temporary' ? html` <span class="badge st-temp"><span class="ico">◷</span>Temporary</span>` : ''}</td>
         <td class="barcode">${c.barcode}</td><td>${c.location || ''}</td><td class="num">${c.item_count}</td>
-        <td>${c.out_rental_id ? html`<span class="badge st-rental"><span class="ico">➜</span>Out</span> <a href="#/rentals/${c.out_rental_id}">${c.out_rental_name}</a>` : html`<span class="muted">Here</span>`}</td></tr>`)}</tbody></table></div>`
+        <td>${c.closed_at ? html`<span class="muted">Closed ${fmtDate(c.closed_at)}</span>` : c.out_rental_id ? html`<span class="badge st-rental"><span class="ico">➜</span>Out</span> <a href="#/rentals/${c.out_rental_id}">${c.out_rental_name}</a>` : html`<span class="muted">Here</span>`}</td></tr>`)}</tbody></table></div>`
       : html`<div class="card"><div class="empty">${emptyText}</div></div>`);
   }
   el.onclick = async (e) => {
     const t = e.target.closest('[data-tab]');
     if (t) { tab = t.dataset.tab; load(); return; }
     if (e.target.closest('#clear-temp')) {
-      if (!confirm('Delete every temporary box that was used on a rental, is now empty and is not on an active rental?')) return;
+      if (!confirm('Close every temporary box that was used on a rental, is now empty and is not on an active rental? They move to the Closed tab and their numbers are never used again.')) return;
       try {
         const { removed } = await api.post('/api/containers/clear-temporary');
-        toast(removed ? `Cleared ${plural(removed, 'temporary box', 'temporary boxes')}` : 'No finished temporary boxes to clear', removed ? 'ok' : 'info');
+        toast(removed ? `Closed ${plural(removed, 'temporary box', 'temporary boxes')}` : 'No finished temporary boxes to close', removed ? 'ok' : 'info');
         notifyChanged();
       } catch (err) { toast(err.message, 'error', 5000); }
       return;

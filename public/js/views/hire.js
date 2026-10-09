@@ -53,6 +53,9 @@ export default async function hireView({ el, query, isActive }) {
   let viewing = null; // the booking being read, or null for the list
   let q = '';
   let reordering = false;
+  let combining = false; // ticking items to show as one on the site
+  let comboName = '';
+  const ticked = new Set(); // keys of the items ticked while combining
   const open = new Set(); // which tile editors are expanded
 
   mount(el, html`
@@ -86,12 +89,15 @@ export default async function hireView({ el, query, isActive }) {
   const alsoNames = (row) => row.also.map((a) => `${cap(a.category)} ${a.type}`).join(', ');
   const tile = (scope, key, row) => {
     const expanded = open.has(`${scope}:${key}`);
-    return html`<div class="hire-tile" data-scope="${scope}" data-key="${key}">
+    const tickable = combining && scope === 'type';
+    return html`<div class="hire-tile ${tickable && ticked.has(key) ? 'ticked' : ''}" data-scope="${scope}" data-key="${key}">
+      ${tickable ? html`<label class="hire-tick"><input type="checkbox" data-tick="${key}" ${ticked.has(key) ? 'checked' : ''} aria-label="Combine ${row.label}"></label>` : ''}
       <div class="hire-thumb">${row.image
         ? html`<img src="/api/hire/img/${scope}/${key}?v=${encodeURIComponent(row.updated_at || '')}" alt="">`
         : PLACEHOLDER}</div>
       <div class="hire-body">
         <div class="hire-name">${row.label}${row.section ? html` <span class="chip">${row.section}</span>` : ''}</div>
+        ${row.combined ? html`<div class="small-text"><span class="badge st-rental"><span class="ico" aria-hidden="true">⧉</span>Combined</span> <span class="muted">${row.members.map((m) => m.details || m.label).join(' · ')}</span></div>` : ''}
         ${row.also?.length ? html`<div class="muted small-text">${row.hide_secondary ? 'Not shown under' : 'Also shown under'} ${alsoNames(row)}</div>` : ''}
         <div class="muted small-text">${scope === 'subcategory'
           ? `${plural(row.kinds, 'kind')} · ${plural(row.total, 'item')}`
@@ -105,9 +111,16 @@ export default async function hireView({ el, query, isActive }) {
         <button class="btn ghost small" type="button" data-act="toggle">${expanded ? 'Close' : 'Edit'}</button>
       </div>
       ${expanded ? html`<div class="hire-edit">
-        <div class="field"><label>Name shown on the site</label>
+        ${row.combined ? html`<div class="field"><label>Name shown on the site</label>
+          <input data-f="label" type="text" maxlength="120" value="${row.label}" required>
+          <span class="hint">Customers book this as one item; any mix of the items below can be packed for it.</span></div>
+        <div class="field"><span class="lbl">Made up of</span>
+          <ul class="hire-members">${row.members.map((m) => html`<li><span>${m.label}${m.details ? html` <span class="muted small-text">${m.details}</span>` : ''} <span class="muted small-text">· ${m.available} of ${m.total} free</span></span>
+            <button class="btn ghost small" type="button" data-remove-member="${m.key}" title="List this one on its own again">Take out</button></li>`)}</ul>
+          <span class="hint">To add more, use <strong>Combine items</strong> and tick this along with them.</span></div>`
+        : html`<div class="field"><label>Name shown on the site</label>
           <input data-f="label" type="text" maxlength="120" value="${row.custom_label || ''}" placeholder="${row.label}">
-          <span class="hint">Leave blank to use “${row.label}”.</span></div>
+          <span class="hint">Leave blank to use “${row.label}”.</span></div>`}
         <div class="field"><label>About this ${scope === 'subcategory' ? 'category' : 'item'}</label>
           <textarea data-f="about" rows="5" maxlength="4000" placeholder="What it is, what it is for, anything a customer should know.">${row.about || ''}</textarea></div>
         ${row.also?.length ? html`<div class="field"><span class="lbl">Second category</span>
@@ -119,6 +132,7 @@ export default async function hireView({ el, query, isActive }) {
         <div class="form-actions">
           <button class="btn small" type="button" data-act="save">Save</button>
           ${row.image ? html`<button class="btn ghost small danger" type="button" data-act="remove-image">Remove picture</button>` : ''}
+          ${row.combined ? html`<button class="btn ghost small danger" type="button" data-act="split" title="List each of its items on its own again">Split up</button>` : ''}
         </div>
       </div>` : ''}
     </div>`;
@@ -154,7 +168,7 @@ export default async function hireView({ el, query, isActive }) {
   </div>`;
 
   function renderTypeReorder(sub) {
-    const types = catalogue.types.filter((t) => t.subcategory === sub.slug);
+    const types = catalogue.types.filter((t) => t.subcategory === sub.slug && !t.group);
     const rows = [];
     let current = null;
     for (const t of types) {
@@ -194,20 +208,23 @@ export default async function hireView({ el, query, isActive }) {
     const term = q.toLowerCase();
     const matches = (r, extra = '') => !term || `${r.label} ${r.custom_label || ''} ${extra}`.toLowerCase().includes(term);
     const subs = catalogue.subcategories.filter((s) => matches(s));
-    const types = catalogue.types.filter((t) => matches(t, `${t.details || ''} ${t.category} ${t.type} ${t.section || ''}`));
-    const noPicture = catalogue.types.filter((t) => !t.image).length + catalogue.subcategories.filter((s) => !s.image).length;
+    const listed = catalogue.types.filter((t) => !t.group); // kinds inside a combined item are shown in it
+    const types = listed.filter((t) => matches(t, `${t.details || ''} ${t.category} ${t.type} ${t.section || ''} ${(t.members || []).map((m) => m.label).join(' ')}`));
+    const noPicture = listed.filter((t) => !t.image).length + catalogue.subcategories.filter((s) => !s.image).length;
+    for (const k of [...ticked]) if (!listed.some((t) => t.key === k)) ticked.delete(k);
 
     mount($('#hire-body', el), html`
       ${renderLook()}
       <div class="kpis">
         <div class="kpi"><div class="label">Sub-categories</div><div class="value">${catalogue.subcategories.length}</div><div class="note">The tiles on the hire home page</div></div>
-        <div class="kpi"><div class="label">Kinds of item</div><div class="value">${catalogue.types.length}</div><div class="note">Grouped like the stock overview</div></div>
+        <div class="kpi"><div class="label">Items listed</div><div class="value">${listed.length}</div><div class="note">Grouped like the stock overview, plus any you have combined</div></div>
         <div class="kpi"><div class="label">Still need a picture</div><div class="value">${noPicture}</div></div>
       </div>
       ${catalogue.types.length ? '' : html`<div class="notice">There is no stock to show, so the hire site is empty. Add some items first.</div>`}
       <div class="toolbar">
         <div class="grow">${reordering ? '' : html`<input type="search" id="hire-q" value="${q}" placeholder="Find a category or item…" aria-label="Search the hire catalogue">`}</div>
-        <button class="btn ${reordering ? '' : 'secondary'} small" type="button" id="reorder-toggle">${reordering ? 'Done reordering' : 'Reorder'}</button>
+        ${reordering ? '' : html`<button class="btn ${combining ? '' : 'secondary'} small" type="button" id="combine-toggle" title="Show several items as one on the site, e.g. 0.5 m and 1 m leads as one lead">${combining ? 'Stop combining' : 'Combine items'}</button>`}
+        ${combining ? '' : html`<button class="btn ${reordering ? '' : 'secondary'} small" type="button" id="reorder-toggle">${reordering ? 'Done reordering' : 'Reorder'}</button>`}
       </div>
 
       ${reordering ? html`
@@ -222,11 +239,18 @@ export default async function hireView({ el, query, isActive }) {
         <p class="muted small-text">The tiles on the front page, one per category and type of stock you own.</p>
         <div class="hire-grid">${subs.length ? subs.map((s) => tile('subcategory', s.slug, s)) : html`<div class="empty">Nothing matches.</div>`}</div>
         <h2 class="hire-head">Kinds of item</h2>
-        <p class="muted small-text">One per group of identical items. Changing an item's description, connectors or length in the inventory moves it to a different group, which would need its own picture.</p>
+        <p class="muted small-text">One per group of identical items. Changing an item's description, connectors or length in the inventory moves it to a different group, which would need its own picture. <strong>Combine items</strong> lists several as one (e.g. 0.5 m and 1 m leads): customers book a quantity of it and any mix can be packed.</p>
+        ${combining ? html`<div class="bulk-bar combine-bar">
+          <span>${ticked.size ? html`<strong>${ticked.size}</strong> ticked` : 'Tick the items to show as one'}</span>
+          <input type="text" id="combo-name" maxlength="120" value="${comboName}" placeholder="Name on the site, e.g. Short IEC leads" aria-label="Name of the combined item">
+          <button class="btn small" type="button" data-act="combine" ${ticked.size < 2 ? 'disabled' : ''}>Combine</button>
+          <button class="btn ghost small" type="button" data-act="combine-clear">Clear ticks</button>
+        </div>` : ''}
         <div class="hire-grid">${types.length ? types.map((t) => tile('type', t.key, t)) : html`<div class="empty">Nothing matches.</div>`}</div>`}`);
 
     $('#hire-q', el)?.addEventListener('input', debounce((e) => { q = e.target.value.trim(); renderPictures(); }, 200));
-    $('#reorder-toggle', el).addEventListener('click', () => { reordering = !reordering; renderPictures(); });
+    $('#reorder-toggle', el)?.addEventListener('click', () => { reordering = !reordering; renderPictures(); });
+    $('#combine-toggle', el)?.addEventListener('click', () => { combining = !combining; ticked.clear(); comboName = ''; renderPictures(); });
     $('#logo-file', el)?.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -367,11 +391,35 @@ export default async function hireView({ el, query, isActive }) {
       saveOrder(list, { withSections: true });
       return;
     }
+    const removeMember = e.target.closest('button[data-remove-member]');
+    if (removeMember) {
+      const gid = removeMember.closest('.hire-tile').dataset.key.slice(2);
+      try {
+        catalogue = await api.del(`/api/hire/groups/${gid}/members/${removeMember.dataset.removeMember}`);
+        toast('Taken out: it is listed on its own again', 'ok');
+        renderPictures();
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
     try {
       if (act === 'view') return await renderBooking(Number(btn.closest('tr[data-id]').dataset.id));
+      if (act === 'combine') {
+        const name = ($('#combo-name', el)?.value || '').trim();
+        const hasGroup = [...ticked].some((k) => k.startsWith('g-'));
+        if (!name && !hasGroup) { toast('Give the combined item a name first', 'info'); $('#combo-name', el)?.focus(); return; }
+        btn.disabled = true;
+        catalogue = await api.post('/api/hire/groups', { name, keys: [...ticked] });
+        toast(`Combined ${plural(ticked.size, 'item')}${name ? ` as “${name}”` : ''}`, 'ok');
+        ticked.clear();
+        comboName = '';
+        combining = false;
+        renderPictures();
+        return;
+      }
+      if (act === 'combine-clear') { ticked.clear(); renderPictures(); return; }
       if (act === 'back') return await loadBookings();
       if (act === 'remove-logo') {
         await api.put('/api/hire/meta/site/logo', { image: null });
@@ -390,6 +438,12 @@ export default async function hireView({ el, query, isActive }) {
       } else if (act === 'save') {
         btn.disabled = true;
         await saveTile(tileEl);
+      } else if (act === 'split') {
+        if (!confirm('Split this combined item up? Each of its items is listed on its own again. Its picture and wording are removed.')) return;
+        catalogue = await api.del(`/api/hire/groups/${tileEl.dataset.key.slice(2)}`);
+        open.delete(id);
+        toast('Split up', 'ok');
+        renderPictures();
       } else if (act === 'remove-image') {
         await api.put(`/api/hire/meta/${tileEl.dataset.scope}/${tileEl.dataset.key}`, { image: null });
         toast('Picture removed', 'ok');
@@ -400,6 +454,15 @@ export default async function hireView({ el, query, isActive }) {
       btn.disabled = false;
     }
   });
+
+  // Ticking items to combine, and keeping the typed name while the list re-renders
+  $('#hire-body', el).addEventListener('change', (e) => {
+    const tick = e.target.closest('input[data-tick]');
+    if (!tick) return;
+    if (tick.checked) ticked.add(tick.dataset.tick); else ticked.delete(tick.dataset.tick);
+    renderPictures();
+  });
+  $('#hire-body', el).addEventListener('input', (e) => { if (e.target.id === 'combo-name') comboName = e.target.value; });
 
   // Renaming a divider (no row movement) also needs saving
   $('#hire-body', el).addEventListener('change', (e) => {

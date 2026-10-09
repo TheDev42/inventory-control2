@@ -175,34 +175,71 @@ export function checkout(item, rental, viaContainer) {
 
 const getContainerRow = (id) => get('SELECT * FROM containers WHERE id = ?', id);
 
-// Puts a case on the rental (or back on it, if it had been marked returned)
+// Sets which case each of these lines is packed in (null = none). Only lines still out on this rental can be packed.
+function setLineCase(rentalId, itemIds, caseId) {
+  let assigned = 0;
+  const skipped = [];
+  for (const raw of new Set(itemIds.map(Number))) {
+    const row = Number.isInteger(raw)
+      ? get('SELECT id FROM rental_items WHERE rental_id = ? AND item_id = ? AND outcome IS NULL', rentalId, raw) : null;
+    if (!row) { skipped.push({ id: raw, reason: 'not out on this rental' }); continue; }
+    run('UPDATE rental_items SET case_id = ? WHERE id = ?', caseId, row.id);
+    assigned++;
+  }
+  return { assigned, skipped };
+}
+
+// Everything stored in the case goes out on the rental with it, packed into it. Items that cannot go out
+// (repair, PAT failed, already on another job…) stay in the case and are reported back in `problems`.
+function sendCaseContents(rental, containerId) {
+  const contents = all(`${itemSelect()} WHERE i.container_id = ? ORDER BY i.barcode`, containerId);
+  let added = 0;
+  let warned = 0;
+  const problems = [];
+  const packedIds = [];
+  for (const it of contents) {
+    const r = checkout(it, rental, true);
+    if (r.state === 'added') { added++; packedIds.push(it.id); if (r.warning) warned++; }
+    else if (r.state === 'duplicate') packedIds.push(it.id);
+    else problems.push(`${it.barcode} ${r.text}`);
+  }
+  if (packedIds.length) setLineCase(rental.id, packedIds, containerId);
+  return { total: contents.length, added, warned, problems };
+}
+
+// Puts a case on the rental (or back on it, if it had been marked returned), and sends whatever is stored
+// in it out on the rental too. Returns what happened to its contents.
 export function attachCase(rentalId, containerId) {
-  const row = get('SELECT * FROM rental_cases WHERE rental_id = ? AND container_id = ?', rentalId, containerId);
-  if (!row) run('INSERT INTO rental_cases (rental_id, container_id, added_at) VALUES (?, ?, ?)', rentalId, containerId, nowIso());
-  else if (row.returned_at) run('UPDATE rental_cases SET returned_at = NULL WHERE id = ?', row.id);
+  const box = getContainerRow(containerId);
+  if (box?.closed_at) throw new HttpError(409, `${box.name} is closed — it cannot be used on a rental again`);
+  return tx(() => {
+    const row = get('SELECT * FROM rental_cases WHERE rental_id = ? AND container_id = ?', rentalId, containerId);
+    if (!row) run('INSERT INTO rental_cases (rental_id, container_id, added_at) VALUES (?, ?, ?)', rentalId, containerId, nowIso());
+    else if (row.returned_at) run('UPDATE rental_cases SET returned_at = NULL WHERE id = ?', row.id);
+    return sendCaseContents(getRental(rentalId), containerId);
+  });
 }
 
 // Packs lines into a case (caseId null = take them out of any case). Only lines still out on this rental can be packed.
 export function packItems(rentalId, itemIds, caseId) {
-  let assigned = 0;
-  const skipped = [];
-  tx(() => {
-    for (const raw of new Set(itemIds.map(Number))) {
-      const row = Number.isInteger(raw)
-        ? get('SELECT id FROM rental_items WHERE rental_id = ? AND item_id = ? AND outcome IS NULL', rentalId, raw) : null;
-      if (!row) { skipped.push({ id: raw, reason: 'not out on this rental' }); continue; }
-      run('UPDATE rental_items SET case_id = ? WHERE id = ?', caseId, row.id);
-      assigned++;
-    }
-    if (caseId && assigned) attachCase(rentalId, caseId);
+  return tx(() => {
+    const res = setLineCase(rentalId, itemIds, caseId);
+    if (caseId && res.assigned) attachCase(rentalId, caseId);
+    return res;
   });
-  return { assigned, skipped };
 }
+
+// The active rental a case is on right now (added to it and not yet scanned back), if any
+export const caseRental = (containerId) => get(
+  `SELECT r.* FROM rental_cases rc JOIN rentals r ON r.id = rc.rental_id
+   WHERE rc.container_id = ? AND rc.returned_at IS NULL AND r.status = 'active' ORDER BY rc.id DESC LIMIT 1`, containerId);
 
 function caseIdOrNull(v) {
   if (v === null || v === undefined || v === '') return null;
   const id = Number(v);
-  if (!Number.isInteger(id) || !getContainerRow(id)) throw new HttpError(404, 'Case not found');
+  const box = Number.isInteger(id) ? getContainerRow(id) : null;
+  if (!box) throw new HttpError(404, 'Case not found');
+  if (box.closed_at) throw new HttpError(409, `${box.name} is closed — it cannot be used on a rental again`);
   return id;
 }
 
@@ -232,10 +269,11 @@ export function addCaseToRental(rentalId, caseId) {
   const rental = activeRental(rentalId);
   const cid = caseIdOrNull(caseId);
   if (!cid) throw new HttpError(400, 'No case chosen');
-  attachCase(rentalId, cid);
+  const sent = attachCase(rentalId, cid);
   const box = getContainerRow(cid);
-  logEvent({ action: 'case_added', rental, container: box, detail: `${box.name} added to "${rental.name}"` });
-  return rentalCases(rentalId);
+  logEvent({ action: 'case_added', rental, container: box,
+    detail: `${box.name} added to "${rental.name}"${sent.added ? ` with ${sent.added} item(s) stored in it` : ''}` });
+  return { cases: rentalCases(rentalId), ...sent };
 }
 
 // Takes the case off the rental; its lines stay on the rental, just no longer packed in it
@@ -295,7 +333,9 @@ export function requirements(rentalId) {
   const rows = all('SELECT * FROM rental_requirements WHERE rental_id = ? ORDER BY id', rentalId);
   if (!rows.length) return rows;
   const packed = packedCountsByKind(rentalId);
-  return rows.map((r) => ({ ...r, fulfilled: Math.min(r.qty, packed.get(r.kind_key) || 0) }));
+  // a combined hire-site item (member_keys) is filled by any of its kinds
+  const keysOf = (r) => { try { const k = r.member_keys && JSON.parse(r.member_keys); return Array.isArray(k) && k.length ? k : [r.kind_key]; } catch { return [r.kind_key]; } };
+  return rows.map((r) => ({ ...r, fulfilled: Math.min(r.qty, keysOf(r).reduce((n, k) => n + (packed.get(k) || 0), 0)) }));
 }
 
 function cleanQty(qty) {

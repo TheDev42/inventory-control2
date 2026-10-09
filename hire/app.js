@@ -92,7 +92,7 @@ const loadCase = () => {
   const saved = store.get(CASE_KEY, []);
   if (!Array.isArray(saved)) return [];
   return saved
-    .filter((l) => l && /^[a-f0-9]{16}$/.test(String(l.key)) && Number.isFinite(Number(l.qty)))
+    .filter((l) => l && /^(?:[a-f0-9]{16}|g-\d{1,9})$/.test(String(l.key)) && Number.isFinite(Number(l.qty)))
     .map((l) => ({ key: String(l.key), label: String(l.label ?? ''), details: l.details ? String(l.details) : null, qty: Math.min(999, Math.max(1, Math.floor(Number(l.qty)))) }))
     .slice(0, 100);
 };
@@ -320,7 +320,8 @@ async function itemPage(key) {
           ${it.male_connector || it.female_connector ? html`<div><span class="k">Connectors</span><span>${it.male_connector || '?'} to ${it.female_connector || '?'}</span></div>` : ''}
           ${it.input_connector ? html`<div><span class="k">Input</span><span>${it.input_connector}</span></div>` : ''}
           ${it.length_m != null ? html`<div><span class="k">Length</span><span>${it.length_m} m</span></div>` : ''}
-          <div><span class="k">We own</span><span>${plural(it.total, 'of these')}</span></div>
+          ${it.members?.length > 1 ? html`<div><span class="k">Includes</span><span>${it.members.map((m, i) => html`${i ? html`<br>` : ''}${m.label}${m.details ? ` (${m.details})` : ''}`)}</span></div>` : ''}
+          <div><span class="k">We own</span><span>${plural(it.total, 'of these', 'of these')}</span></div>
           <div><span class="k">${data.dated ? 'Free for your dates' : 'Free right now'}</span><span>${availPill(it.available, data.dated)}</span></div>
         </div>
         ${it.about ? html`<h2>About this item</h2><p class="about">${it.about}</p>` : ''}
@@ -603,7 +604,7 @@ async function stockPage(q = '') {
 const ROUTES = [
   [/^\/?$/, () => homePage()],
   [/^\/c\/([a-z0-9-]{1,80})$/, (m) => subcategoryPage(m[1])],
-  [/^\/i\/([a-f0-9]{16})$/, (m) => itemPage(m[1])],
+  [/^\/i\/([a-f0-9]{16}|g-\d{1,9})$/, (m) => itemPage(m[1])],
   [/^\/case$/, () => casePage()],
   [/^\/search$/, (_m, query) => searchPage(query.get('q') || '')],
   [/^\/stock$/, (_m, query) => stockPage(query.get('q') || '')],

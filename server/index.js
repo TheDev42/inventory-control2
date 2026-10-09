@@ -167,7 +167,7 @@ app.get('/api/rentals/:id/pdf', sendRentalPdf('internal', 'internal-hire-sheet')
 app.get('/api/rentals/:id/client-pdf', sendRentalPdf('client', 'client-hire-list'));
 
 /* ---------- containers ---------- */
-app.get('/api/containers', (req, res) => res.json(containers.listContainers(req.query.q, req.query.kind)));
+app.get('/api/containers', (req, res) => res.json(containers.listContainers(req.query.q, req.query.kind, req.query.closed === '1')));
 app.post('/api/containers', (req, res) => res.status(201).json(containers.createContainer(req.body || {})));
 app.get('/api/containers/:id', (req, res) => res.json(containers.containerDetail(id(req))));
 app.put('/api/containers/:id', (req, res) => res.json(containers.updateContainer(id(req), req.body || {})));
@@ -192,8 +192,9 @@ app.get('/api/containers/:id/label.pdf', (req, res) => {
     client: field('client', 60), event: field('event', 60), date: field('date', 20), box: field('box', 20), contents,
   });
 });
-// Deletes temporary boxes that have finished their job (used on a rental, now empty and not on an active rental)
-app.post('/api/containers/clear-temporary', (_req, res) => res.json({ removed: containers.clearFinishedTemporary() }));
+// Closes temporary boxes that have finished their job (used on a rental, now empty and not on an active rental)
+app.post('/api/containers/clear-temporary', (_req, res) => res.json({ removed: containers.closeFinishedTemporary() }));
+app.post('/api/containers/:id/close', (req, res) => res.json(containers.closeContainer(id(req))));
 app.post('/api/containers/:id/empty', (req, res) => res.json({ removed: containers.emptyContainer(id(req)) }));
 
 /* ---------- hire site (admin side: pictures, about text and the requests that come in) ---------- */
@@ -230,6 +231,10 @@ app.get('/api/hire/requests', (_req, res) => res.json(hire.listRequests()));
 app.get('/api/hire/requests/:id', (req, res) => res.json(hire.requestDetail(id(req))));
 // Batch reorder / re-section for the public site: [{ scope, key, sortOrder, section? }, …]
 app.post('/api/hire/order', (req, res) => res.json(hire.reorder(req.body)));
+// Combined items: several kinds listed on the hire site as one
+app.post('/api/hire/groups', (req, res) => res.json(hire.combineKinds(req.body?.name, req.body?.keys)));
+app.delete('/api/hire/groups/:id', (req, res) => res.json(hire.splitGroup(id(req))));
+app.delete('/api/hire/groups/:id/members/:key', (req, res) => res.json(hire.removeFromGroup(id(req), String(req.params.key))));
 
 /* ---------- activity + backup ---------- */
 app.get('/api/events', (req, res) => {

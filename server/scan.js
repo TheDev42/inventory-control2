@@ -4,7 +4,7 @@ import {
   itemSelect, getItem, getItemByBarcode, getContainerByBarcode, describeItem,
   returnItem, recordPat,
 } from './items.js';
-import { getRental, checkout, attachCase, packItems } from './rentals.js';
+import { getRental, checkout, attachCase, packItems, caseRental } from './rentals.js';
 
 /*
  * One endpoint handles every scan. The client sends the barcode plus the current mode, and gets back a
@@ -39,23 +39,12 @@ function scanOut(item, container, { rentalId }) {
     return result('error', `${item.barcode} is ${r.text}`, { item: fresh });
   }
 
-  // The case itself goes on the rental, and whatever it sends out is packed into it (so the shipment list shows "in case X")
-  attachCase(rental.id, container.id);
-  const contents = all(`${itemSelect()} WHERE i.container_id = ? ORDER BY i.barcode`, container.id);
-  if (!contents.length) {
-    return result('out', `OUT → ${rental.name}: case ${container.name} (empty — add its items on the rental page and pack them into it)`, { container, rentalId: rental.id });
+  // The case itself goes on the rental, and whatever is stored in it goes out packed into it (so the shipment list shows "in case X")
+  if (container.closed_at) return result('error', `${container.name} is closed — it cannot go out again`, { container });
+  const { total, added, warned, problems } = attachCase(rental.id, container.id);
+  if (!total) {
+    return result('out', `OUT → ${rental.name}: case ${container.name} (empty — anything you scan into it now goes onto this rental too)`, { container, rentalId: rental.id });
   }
-  let added = 0;
-  const problems = [];
-  const packedIds = [];
-  let warned = 0;
-  for (const it of contents) {
-    const r = checkout(it, rental, true);
-    if (r.state === 'added') { added++; packedIds.push(it.id); if (r.warning) warned++; }
-    else if (r.state === 'duplicate') packedIds.push(it.id);
-    else problems.push(`${it.barcode} ${r.text}`);
-  }
-  if (packedIds.length) packItems(rental.id, packedIds, container.id);
   const skipped = problems.length ? ` — ${problems.length} skipped: ${problems.slice(0, 3).join('; ')}${problems.length > 3 ? '…' : ''}` : '';
   if (!added) return result(problems.length ? 'error' : 'warn', `Nothing new from ${container.name}${skipped || ' (all its items were already on this rental)'}`, { container, rentalId: rental.id });
   const pat = warned ? ` ⚠ ${warned} with PAT due/overdue` : '';
@@ -107,6 +96,7 @@ function scanReturn(item, container) {
 
 function scanStore(item, scannedContainer, { containerId }) {
   if (scannedContainer) {
+    if (scannedContainer.closed_at) return result('error', `${scannedContainer.name} is closed — nothing more can go in it`, { container: scannedContainer });
     // Scanning a container while in Store mode simply switches the target container.
     return result('lookup', `Now storing into ${scannedContainer.name}`, { container: scannedContainer, setContainerId: scannedContainer.id });
   }
@@ -114,9 +104,21 @@ function scanStore(item, scannedContainer, { containerId }) {
   if (!containerId) return result('error', 'No container selected — pick one in the scan bar or scan its barcode first');
   const container = get('SELECT * FROM containers WHERE id = ?', containerId);
   if (!container) return result('error', 'Container not found');
+  if (container.closed_at) return result('error', `${container.name} is closed — nothing more can go in it`);
+
+  // A case that has been added to a rental takes whatever is scanned into it onto that rental as well
+  const rental = caseRental(container.id);
 
   if (item.status === 'on_rental') {
-    return result('error', `${item.barcode} is out on "${item.rental_name}" — return it first`, { item });
+    if (!rental || item.rental_id !== rental.id) return result('error', `${item.barcode} is out on "${item.rental_name}" — return it first`, { item });
+    // already on the case's own rental: this just packs it into the case
+    if (item.container_id === container.id) return result('warn', `${item.barcode} is already in ${container.name}`, { item });
+    tx(() => {
+      run('UPDATE items SET container_id = ?, updated_at = ? WHERE id = ?', container.id, nowIso(), item.id);
+      packItems(rental.id, [item.id], container.id);
+      logEvent({ action: 'stored', item, container, rental, detail: `Packed into ${container.name} for "${rental.name}"` });
+    });
+    return result('store', `PACKED → ${container.name}: ${item.barcode} (${describeItem(item)}) — already on ${rental.name}`, { item: getItem(item.id), container });
   }
   const wasMissing = item.status === 'lost' || item.status === 'disassembled';
   if (!wasMissing && item.container_id === container.id) {
@@ -126,14 +128,22 @@ function scanStore(item, scannedContainer, { containerId }) {
     returnItem(item, `Found and stored in ${container.name} (was ${STATUS_LABEL[item.status]})`);
   }
   const from = !wasMissing && item.container_name ? ` (moved from ${item.container_name})` : '';
+  let out = null;
   tx(() => {
     run('UPDATE items SET container_id = ?, updated_at = ? WHERE id = ?', container.id, nowIso(), item.id);
     logEvent({ action: 'stored', item, container, detail: `Stored in ${container.name}${from}` });
+    if (rental) {
+      out = checkout(getItem(item.id), rental, true);
+      if (out.state === 'added') packItems(rental.id, [item.id], container.id);
+    }
   });
   const fresh = getItem(item.id);
-  return result(wasMissing ? 'found' : 'store',
-    `${wasMissing ? `FOUND (was ${STATUS_LABEL[item.status].toUpperCase()}) → ` : 'STORED → '}${container.name}: ${item.barcode} (${describeItem(item)})${from}`,
-    { item: fresh, container });
+  const msg = `${wasMissing ? `FOUND (was ${STATUS_LABEL[item.status].toUpperCase()}) → ` : 'STORED → '}${container.name}: ${item.barcode} (${describeItem(item)})${from}`;
+  if (out?.state === 'added') {
+    return result(out.warning ? 'out_warn' : 'out', `${msg} — OUT on ${rental.name}${out.warning ? ` ⚠ ${out.warning}` : ''}`, { item: fresh, container, rentalId: rental.id });
+  }
+  if (out) return result('warn', `${msg} — but NOT added to ${rental.name}: ${out.text}`, { item: fresh, container });
+  return result(wasMissing ? 'found' : 'store', msg, { item: fresh, container });
 }
 
 /* ---------- PAT ---------- */

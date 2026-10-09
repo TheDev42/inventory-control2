@@ -33,7 +33,7 @@ function stockByType(rows) {
     <div class="hbars">${rows.map((r) => {
       const parts = STATES.filter((s) => r[s.key] > 0);
       return html`<div class="hbar">
-        <div class="name">${cap(r.category)} · ${r.type}</div>
+        <div class="name" title="${cap(r.category)} · ${r.type}">${cap(r.category)} · ${r.type}</div>
         <div class="track" style="width:${(r.total / max) * 100}%" role="img"
           aria-label="${parts.map((s) => `${r[s.key]} ${s.label.toLowerCase()}`).join(', ')}">
           ${parts.map((s) => html`<span class="seg-fill" style="--c:var(${s.c});flex:${r[s.key]}" title="${r[s.key]} ${s.label.toLowerCase()}"></span>`)}
@@ -74,7 +74,7 @@ export default async function dashboardView({ el, isActive }) {
         </div>
       </div>
 
-      <div class="kpis">
+      <div class="kpis dash-kpis">
         ${kpi('Total items', t.total, { note: t.sold ? `${t.sold} sold, kept on the register` : '' })}
         ${kpi('In stock', t.in_stock, { href: '#/inventory?status=in_stock', color: '--s1' })}
         ${kpi('On rental', t.on_rental, { href: '#/inventory?status=on_rental', color: '--s2' })}
@@ -84,9 +84,9 @@ export default async function dashboardView({ el, isActive }) {
         ${kpi('PAT needs attention', patAttention, { href: '#/pat', note: `${d.pat.overdue} overdue · ${d.pat.failed} failed · ${d.pat.never} never tested` })}
       </div>
 
-      <div class="grid side">
-        <section class="card"><div class="card-head"><h2>Stock by type</h2><a href="#/inventory">View all</a></div>${stockByType(d.byType)}</section>
-        <section class="card"><div class="card-head"><h2>PAT testing</h2><a href="#/pat">Manage</a></div>${patPanel(d.pat, t.total)}</section>
+      <div class="grid dash-split">
+        <section class="card dash-stock"><div class="card-head"><h2>Stock by type</h2><a href="#/inventory">View all</a></div>${stockByType(d.byType)}</section>
+        <section class="card dash-pat"><div class="card-head"><h2>PAT testing</h2><a href="#/pat">Manage</a></div>${patPanel(d.pat, t.total)}</section>
       </div>
 
       <div class="grid cols-2" style="margin-top:16px">

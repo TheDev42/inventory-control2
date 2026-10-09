@@ -91,25 +91,25 @@ const INTERNAL = {
   fontSize: 8.5,
   columns: [
     { key: 'n', title: '#', w: 24, align: 'right' },
-    { key: 'barcode', title: 'Barcode', w: 92, bold: true },
-    { key: 'type', title: 'Type', w: 84 },
-    { key: 'name', title: 'Description', w: 186 },
+    { key: 'barcode', title: 'Barcode', w: 60, bold: true },
+    { key: 'type', title: 'Type', w: 64 },
+    { key: 'name', title: 'Description', w: 230 },
     { key: 'male', title: 'Male end', w: 96 },
-    { key: 'female', title: 'Female end', w: 96 },
+    { key: 'female', title: 'Female end', w: 126 },
     { key: 'len', title: 'Length', w: 40, align: 'right' },
     { key: 'pat', title: 'PAT tested', w: 70 },
-    { key: 'ret', title: 'Returned', w: 82 },
+    { key: 'ret', title: 'Returned', w: 60 },
   ],
   portraitColumns: [
     { key: 'n', title: '#', w: 20, align: 'right' },
-    { key: 'barcode', title: 'Barcode', w: 54, bold: true },
-    { key: 'type', title: 'Type', w: 48 },
-    { key: 'name', title: 'Description', w: 96 },
+    { key: 'barcode', title: 'Barcode', w: 42, bold: true },
+    { key: 'type', title: 'Type', w: 42 },
+    { key: 'name', title: 'Description', w: 113 },
     { key: 'male', title: 'Male end', w: 74 },
-    { key: 'female', title: 'Female end', w: 74 },
-    { key: 'len', title: 'Length', w: 40, align: 'right' },
-    { key: 'pat', title: 'PAT tested', w: 58 },
-    { key: 'ret', title: 'Returned', w: 59 },
+    { key: 'female', title: 'Female end', w: 92 },
+    { key: 'len', title: 'Length', w: 36, align: 'right' },
+    { key: 'pat', title: 'PAT tested', w: 52 },
+    { key: 'ret', title: 'Returned', w: 52 },
   ],
 };
 
@@ -210,7 +210,8 @@ export function writeRentalPdf(res, { rental, items, company, mode = 'internal',
   const tableW = columns.reduce((s, c) => s + c.w, 0);
   const bottom = () => doc.page.height - doc.page.margins.bottom - 24; // leave room for footer
 
-  const fit = (text, width) => {
+  const fit = (text, w) => {
+    const width = w - 1; // a hair of slack: text measured as exactly the cell width can still wrap onto a hidden second line
     let s = String(text ?? '');
     if (doc.widthOfString(s) <= width) return s;
     while (s.length > 1 && doc.widthOfString(s + '…') > width) s = s.slice(0, -1);

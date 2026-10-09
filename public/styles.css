@@ -208,6 +208,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .grid.side { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 @media (max-width: 1100px) { .grid.cols-3, .grid.side { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .grid.cols-2 { grid-template-columns: 1fr; } }
+/* Dashboard: stock by type and PAT share the seven-column grid of the stat tiles above, so the gap between
+   the two panels lines up with a gap between tiles (stock gets five tiles' width, PAT two) */
+.grid.dash-split { grid-template-columns: minmax(0, 5fr) minmax(0, 2fr); }
+@media (min-width: 1400px) {
+  .kpis.dash-kpis, .grid.dash-split { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 16px; }
+  .dash-stock { grid-column: span 5; }
+  .dash-pat { grid-column: span 2; }
+  .dash-pat .patbar { grid-template-columns: 128px minmax(0, 1fr) 32px; gap: 8px; }
+}
+@media (max-width: 1100px) { .grid.dash-split { grid-template-columns: 1fr; } }
 .stack { display: grid; gap: 16px; }
 .empty { color: var(--ink-2); padding: 40px 12px; text-align: center; }
 .notice { padding: 10px 14px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); margin-bottom: 16px; }
@@ -228,7 +238,7 @@ a.kpi:hover { text-decoration: none; border-color: var(--accent); }
 .legend .key { display: inline-flex; align-items: center; gap: 6px; }
 .legend .sw { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
 .hbars { display: grid; gap: 10px; }
-.hbar { display: grid; grid-template-columns: 130px minmax(0, 1fr) 44px; gap: 10px; align-items: center; }
+.hbar { display: grid; grid-template-columns: 210px minmax(0, 1fr) 44px; gap: 10px; align-items: center; }
 .hbar .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hbar .name small { color: var(--muted); font-weight: 500; }
 .hbar .total { text-align: right; font-weight: 700; }
@@ -241,7 +251,7 @@ a.kpi:hover { text-decoration: none; border-color: var(--accent); }
 a.patbar:hover { text-decoration: none; background: var(--surface-2); border-radius: 6px; }
 .patbar .track .seg-fill { border-radius: 0 4px 4px 0; }
 .patbar .n { text-align: right; font-weight: 700; }
-@media (max-width: 560px) { .hbar { grid-template-columns: 96px minmax(0, 1fr) 36px; } .patbar { grid-template-columns: 120px minmax(0, 1fr) 32px; } }
+@media (max-width: 560px) { .hbar { grid-template-columns: 140px minmax(0, 1fr) 36px; } .patbar { grid-template-columns: 120px minmax(0, 1fr) 32px; } }
 
 /* ---------- lists / feed ---------- */
 .feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
@@ -288,6 +298,10 @@ tr.is-sold .barcode { color: var(--ink-2); }
 .st-repair { --c: var(--s7); }
 .st-sold { --c: var(--muted); }
 .st-temp { --c: var(--s4); }
+.case-history { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.case-history:last-child { border-bottom: 0; }
+.case-history-items { margin: 6px 0 0; padding-left: 18px; font-size: .88rem; }
+.case-history-items li { margin: 2px 0; }
 .st-mine { --c: var(--s3); }
 .pat-ok { --c: var(--good); }
 .pat-soon { --c: var(--warning); }
@@ -542,5 +556,15 @@ table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 65
 
 /* a divider line in the hire-site reorder list */
 .reorder-divider { background: var(--surface-2); border-style: dashed; }
+/* hire site: combining items */
+.hire-tile { position: relative; }
+.hire-tile.ticked { outline: 2px solid var(--accent); outline-offset: -1px; }
+.hire-tick { position: absolute; top: 8px; left: 8px; z-index: 1; background: var(--surface); border-radius: 6px; padding: 4px 6px; box-shadow: var(--shadow); cursor: pointer; }
+.hire-tick input { width: 18px; height: 18px; margin: 0; display: block; }
+.combine-bar { margin-bottom: 12px; }
+.combine-bar input[type="text"] { flex: 1 1 220px; min-width: 0; }
+.hire-members { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 4px; }
+.hire-members li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.hire-members li:last-child { border-bottom: 0; }
 .reorder-divider .reorder-section { max-width: 320px; flex: 1; }
 .reorder-divider .reorder-move .btn { width: 30px; }
