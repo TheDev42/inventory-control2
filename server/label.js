@@ -103,7 +103,7 @@ export function labelDate(v) {
 const W = 288; // 4 in, in PDF points
 const H = 432; // 6 in
 
-export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client, event, date, box, weight, contents = [] }) {
+export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client, event, date, box, weight, gross = false, contents = [] }) {
   const bits = code128B(barcode); // throws before anything is written if the barcode can't be printed
   const doc = new PDFDocument({ size: [W, H], margin: 0, info: { Title: `Box label ${barcode}`, Author: company } });
   doc.pipe(res);
@@ -167,7 +167,7 @@ export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client,
   const cx = left + 12;
   const cy = y2 + 24;
   const cw = right - left - 24;
-  const net = clean(weight) ? `NET ${clean(weight)}` : ''; // sits along the bottom of the contents box, so the list stops short of it
+  const net = clean(weight) ? `${gross ? 'GROSS' : 'NET'} ${clean(weight)}` : ''; // sits along the bottom of the contents box, so the list stops short of it
   const ch = y3 - cy - 6 - (net ? 20 : 0);
   const lines = contents.map(clean).filter(Boolean);
   if (lines.length) {
@@ -195,7 +195,7 @@ export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client,
     doc.fillColor(INK).font('Helvetica').fontSize(size).text(shown.join('\n'), cx, cy, opts(size));
   }
 
-  // NET weight of the contents: centred at the foot of the contents box, just above the barcode strip
+  // NET weight of the contents (GROSS when the case's own weight is counted in): centred at the foot of the contents box, just above the barcode strip
   if (net) doc.fillColor(INK).font('Helvetica-Bold').fontSize(14).text(net, left, y3 - 19, { width: right - left, align: 'center', lineBreak: false });
 
   // barcode strip

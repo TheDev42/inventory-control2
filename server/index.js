@@ -182,7 +182,7 @@ app.post('/api/containers', (req, res) => res.status(201).json(containers.create
 app.get('/api/containers/:id', (req, res) => res.json(containers.containerDetail(id(req))));
 app.put('/api/containers/:id', (req, res) => res.json(containers.updateContainer(id(req), req.body || {})));
 app.delete('/api/containers/:id', (req, res) => { containers.deleteContainer(id(req)); res.json({ ok: true }); });
-// 4" x 6" case label. Query: client, event, date (YYYY-MM-DD), box, weight (the NET weight, e.g. "12.5 kg"), contents (one line per row), download=1 to save instead of
+// 4" x 6" case label. Query: client, event, date (YYYY-MM-DD), box, weight (e.g. "12.5 kg"), gross (1 = print it as GROSS, 0 = NET), contents (one line per row), download=1 to save instead of
 // opening. Any of those left out is filled in from the case (its contents, and the rental it is packed for), like the form does.
 app.get('/api/containers/:id/label-defaults', (req, res) => res.json(containers.labelDefaults(id(req))));
 app.get('/api/containers/:id/label.pdf', (req, res) => {
@@ -200,7 +200,8 @@ app.get('/api/containers/:id/label.pdf', (req, res) => {
   });
   writeLabelPdf(res, {
     company: COMPANY, barcode: defaults.barcode, name: defaults.name,
-    client: field('client', 60), event: field('event', 60), date: field('date', 20), box: field('box', 20), weight: field('weight', 20), contents,
+    client: field('client', 60), event: field('event', 60), date: field('date', 20), box: field('box', 20), weight: field('weight', 20),
+    gross: typeof q.gross === 'string' ? q.gross === '1' : defaults.gross, contents,
   });
 });
 // Closes temporary boxes that have finished their job (used on a rental, now empty and not on an active rental)

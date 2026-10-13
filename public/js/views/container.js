@@ -24,7 +24,7 @@ export default async function containerView({ el, args, isActive }) {
       <div class="page-head">
         <div>
           <h1>${c.name} ${closed ? html`<span class="badge pat-na" style="vertical-align:middle"><span class="ico">✓</span>Closed</span>` : ''}${c.kind === 'temporary' ? html` <span class="badge st-temp" style="vertical-align:middle"><span class="ico">◷</span>Temporary box</span>` : ''}</h1>
-          <div class="sub"><span class="barcode">${c.barcode}</span>${onRental ? html` · <span class="badge st-rental"><span class="ico">➜</span>Out</span> on <a href="#/rentals/${onRental.id}">${onRental.name}</a>` : ''}${c.location ? html` · ${c.location}` : ''} · ${plural(items.length, 'item')}${out ? ` (${out} out on rental)` : ''}</div>
+          <div class="sub"><span class="barcode">${c.barcode}</span>${onRental ? html` · <span class="badge st-rental"><span class="ico">➜</span>Out</span> on <a href="#/rentals/${onRental.id}">${onRental.name}</a>` : ''}${c.location ? html` · ${c.location}` : ''}${c.weight_kg != null ? html` · ${c.weight_kg} kg empty` : ''} · ${plural(items.length, 'item')}${out ? ` (${out} out on rental)` : ''}</div>
           ${c.notes ? html`<div class="muted" style="margin-top:6px;white-space:pre-wrap">${c.notes}</div>` : ''}
         </div>
         <div class="actions">
@@ -44,6 +44,8 @@ export default async function containerView({ el, args, isActive }) {
             <option value="permanent" ${c.kind === 'permanent' ? 'selected' : ''}>Permanent case (one you always use)</option>
             <option value="temporary" ${c.kind === 'temporary' ? 'selected' : ''}>Temporary box (a one-off)</option></select></div>
           <div class="field"><label for="e-loc">Location</label><input id="e-loc" name="location" type="text" value="${c.location || ''}"></div>
+          <div class="field"><label for="e-weight">Empty weight (kg)</label><input id="e-weight" name="weight_kg" type="number" step="0.01" min="0" value="${c.weight_kg ?? ''}" placeholder="e.g. 8.5">
+            <span class="hint">What the case itself weighs. With this set, its label shows the GROSS weight (case + contents) instead of NET.</span></div>
           <div class="field wide"><label for="e-notes">Notes</label><textarea id="e-notes" name="notes" rows="2">${c.notes || ''}</textarea></div>
         </div>
         <div id="edit-error"></div>
@@ -57,8 +59,8 @@ export default async function containerView({ el, args, isActive }) {
           <div class="field"><label for="l-event">Event</label><input id="l-event" name="event" type="text" maxlength="60" value="${label.event}"></div>
           <div class="field"><label for="l-date">Date</label><input id="l-date" name="date" type="date" value="${label.date}"></div>
           <div class="field"><label for="l-box">Box no.</label><input id="l-box" name="box" type="text" maxlength="20" placeholder="e.g. 2 of 3" value="${label.box}"></div>
-          <div class="field"><label for="l-weight">NET weight</label><input id="l-weight" name="weight" type="text" maxlength="20" placeholder="e.g. 12.5 kg" value="${label.weight}">
-            <span class="hint">Printed by the barcode. Added up from the weight of each item in the case${label.unweighed ? html` — <strong>${plural(label.unweighed, 'item')} in it ${label.unweighed === 1 ? 'has' : 'have'} no weight set</strong>, so ${label.weight ? 'the real figure is higher' : 'there is nothing to add up yet'}` : ''}. Leave it blank to print no weight.</span></div>
+          <div class="field"><label for="l-weight">${label.gross ? 'GROSS' : 'NET'} weight</label><input id="l-weight" name="weight" type="text" maxlength="20" placeholder="e.g. 12.5 kg" value="${label.weight}">
+            <span class="hint">Printed above the barcode. ${label.gross ? 'The case\'s own weight plus the weight of each item in it' : 'Added up from the weight of each item in the case (set the case\'s empty weight under Edit to print GROSS instead)'}${label.unweighed ? html` — <strong>${plural(label.unweighed, 'item')} in it ${label.unweighed === 1 ? 'has' : 'have'} no weight set</strong>, so ${label.weight ? 'the real figure is higher' : 'there is nothing to add up yet'}` : ''}. Leave it blank to print no weight.</span></div>
           <div class="field wide"><label for="l-contents">Contents <span class="muted">— one line per kind of item; edit it freely</span></label>
             <textarea id="l-contents" name="contents" rows="8" spellcheck="false">${label.contents}</textarea>
             <div><button class="btn ghost small" type="button" data-act="label-reset">Reset from what is in the case</button></div>
@@ -131,7 +133,7 @@ export default async function containerView({ el, args, isActive }) {
         $('#l-weight', el).value = label.weight;
       } catch (err) { toast(err.message, 'error', 5000); }
     } else if (act === 'label-open' || act === 'label-download') {
-      const p = new URLSearchParams({ client: label.client, event: label.event, date: label.date, box: label.box, weight: label.weight, contents: label.contents });
+      const p = new URLSearchParams({ client: label.client, event: label.event, date: label.date, box: label.box, weight: label.weight, gross: label.gross ? '1' : '0', contents: label.contents });
       if (act === 'label-download') {
         p.set('download', '1');
         const a = document.createElement('a');

@@ -22,6 +22,7 @@ export default async function containersView({ el, query, isActive }) {
         <div class="field"><label for="c-barcode">Barcode <span id="c-bc-req">*</span></label><input id="c-barcode" name="barcode" type="text" inputmode="numeric" required placeholder="e.g. 90001 (scan or type)" autocomplete="off"><span class="hint" id="c-bc-hint">You can scan straight into this page.</span></div>
         <div class="field"><label for="c-name">Name <span id="c-name-req">*</span></label><input id="c-name" name="name" type="text" required placeholder="e.g. Flightcase 12 – 16A leads"></div>
         <div class="field"><label for="c-location">Location</label><input id="c-location" name="location" type="text" placeholder="e.g. Warehouse, bay 3"></div>
+        <div class="field"><label for="c-weight">Empty weight (kg)</label><input id="c-weight" name="weight_kg" type="number" step="0.01" min="0" placeholder="optional, e.g. 8.5"></div>
         <div class="field wide"><label for="c-notes">Notes</label><textarea id="c-notes" name="notes" rows="2"></textarea></div>
       </div>
       <div id="container-error"></div>

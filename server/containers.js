@@ -17,6 +17,15 @@ const kindOf = (v) => (v === 'temporary' ? 'temporary' : 'permanent');
 // A closed temporary box is kept (with a record of what was in it) but can never be used again
 ensureColumn('containers', 'closed_at', 'TEXT');
 ensureColumn('containers', 'closed_contents', 'TEXT'); // JSON snapshot of what was stored in it when it was closed
+ensureColumn('containers', 'weight_kg', 'REAL'); // what the empty case weighs; when set, its label shows GROSS weight (case + contents) instead of NET
+
+// Blank = not set. Anything else must be a weight in kg.
+function caseWeight(v) {
+  const s = str(v);
+  if (s === null) return null;
+  if (!Number.isFinite(Number(s)) || Number(s) < 0) throw new HttpError(400, `Invalid weight "${v}"`);
+  return Number(s);
+}
 
 // Running counters that must never go backwards, even when the rows they numbered are deleted
 db.exec('CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL)');
@@ -111,6 +120,7 @@ export function createContainer(data) {
   const kind = kindOf(data.kind);
   let barcode = str(normalizeBarcode(data.barcode));
   let name = str(data.name);
+  const weight = caseWeight(data.weight_kg);
   return tx(() => {
     if (!barcode && kind === 'temporary') barcode = nextTempBarcode(); // one-off boxes only need a name
     if (!name && kind === 'temporary') name = `Temp box ${barcode}`;
@@ -118,8 +128,8 @@ export function createContainer(data) {
     if (!name) throw new HttpError(400, 'Name is required');
     const clash = barcodeTaken(barcode);
     if (clash) throw new HttpError(409, `Barcode ${barcode} is already used by a ${clash}`);
-    const res = run('INSERT INTO containers (barcode, name, location, notes, kind, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      barcode, name, str(data.location), str(data.notes), kind, nowIso());
+    const res = run('INSERT INTO containers (barcode, name, location, notes, kind, weight_kg, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      barcode, name, str(data.location), str(data.notes), kind, weight, nowIso());
     const container = getContainer(Number(res.lastInsertRowid));
     logEvent({ action: 'container_created', container, detail: `${kind === 'temporary' ? 'Temporary box' : 'Container'} "${name}" created` });
     return container;
@@ -138,8 +148,8 @@ export function updateContainer(id, data) {
     const clash = barcodeTaken(barcode);
     if (clash) throw new HttpError(409, `Barcode ${barcode} is already used by a ${clash}`);
   }
-  run('UPDATE containers SET barcode=?, name=?, location=?, notes=?, kind=? WHERE id=?',
-    barcode, name, str(merged.location), str(merged.notes), kindOf(merged.kind), id);
+  run('UPDATE containers SET barcode=?, name=?, location=?, notes=?, kind=?, weight_kg=? WHERE id=?',
+    barcode, name, str(merged.location), str(merged.notes), kindOf(merged.kind), caseWeight(merged.weight_kg), id);
   return getContainer(id);
 }
 
@@ -214,13 +224,16 @@ export function labelData(id) {
 // Starting values for the "print label" form
 export function labelDefaults(id) {
   const d = labelData(id);
-  // NET weight: the contents' weights added up (the case itself is not counted). Items with no weight set
+  // NET weight: the contents' weights added up. When the case has a weight of its own that is added on too, and
+  // the figure is the GROSS weight instead. Items with no weight set
   // can't be counted, so the form is told how many there are.
   const weighed = d.contents.filter((it) => it.weight_kg != null);
   const net = weighed.reduce((sum, it) => sum + it.weight_kg, 0);
+  const caseKg = d.container.weight_kg;
   return {
     client: d.client, event: d.event, date: d.date, box: d.box,
-    weight: weighed.length ? `${Math.round(net * 100) / 100} kg` : '',
+    gross: caseKg != null,
+    weight: weighed.length || caseKg != null ? `${Math.round((net + (caseKg ?? 0)) * 100) / 100} kg` : '',
     unweighed: d.contents.length - weighed.length,
     contents: contentsLines(d.contents).join('\n'),
     name: d.container.name, barcode: d.container.barcode,
