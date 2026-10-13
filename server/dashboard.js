@@ -16,7 +16,7 @@ export function dashboard() {
      FROM items`
   );
   for (const k of Object.keys(totals)) totals[k] = totals[k] || 0;
-  totals.containers = get('SELECT COUNT(*) AS n FROM containers').n;
+  totals.containers = get('SELECT COUNT(*) AS n FROM containers WHERE closed_at IS NULL').n; // closed temporary boxes are history, not containers in use
 
   const byType = all(
     `SELECT category, type, COUNT(*) AS total,

@@ -36,6 +36,7 @@ export default async function itemView({ el, args, isActive }) {
         </div>
         <div class="actions">
           <a class="btn secondary" href="#/items/${it.id}/edit">Edit</a>
+          <a class="btn secondary" href="#/items/new?copy=${it.id}" title="Add another one of these: a new item with the same details, under a new barcode">Duplicate</a>
           ${onRental ? html`<button class="btn" data-act="return">Return to stock</button>` : ''}
           ${it.container_id ? html`<button class="btn secondary" data-act="unstore">Remove from container</button>` : ''}
           ${sold ? html`<button class="btn" data-marker="in_stock">Undo sale</button>` : ''}
@@ -100,6 +101,7 @@ export default async function itemView({ el, args, isActive }) {
                 <dt>Outputs (out)</dt><dd>${outputsOf(it).length ? html`<ul class="plain">${outputsOf(it).map((o) => html`<li><strong>${o.qty}×</strong> ${o.connector}</li>`)}</ul>` : '—'}</dd>` : ''}
               <dt>Length</dt><dd>${it.length_m != null ? `${it.length_m} m` : '—'}</dd>
               <dt>Cost</dt><dd>${it.cost != null ? `£${it.cost.toFixed(2)}` : '—'}</dd>
+              <dt>Weight</dt><dd>${it.weight_kg != null ? `${it.weight_kg} kg` : '—'}</dd>
               <dt>Added</dt><dd>${fmtDate(it.created_at)}</dd>
             </dl>
           </section>

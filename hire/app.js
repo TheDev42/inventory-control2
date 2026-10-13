@@ -317,7 +317,7 @@ async function itemPage(key) {
         <p class="muted">${cap(it.category)} · ${it.type}</p>
         <div class="spec">
           ${it.details ? html`<div><span class="k">Details</span><span>${it.details}</span></div>` : ''}
-          ${it.male_connector || it.female_connector ? html`<div><span class="k">Connectors</span><span>${it.male_connector || '?'} to ${it.female_connector || '?'}</span></div>` : ''}
+          ${it.male_connector || it.female_connector ? html`<div><span class="k">Connectors</span><span>${[it.male_connector, it.female_connector].filter(Boolean).join(' to ')}</span></div>` : ''}
           ${it.input_connector ? html`<div><span class="k">Input</span><span>${it.input_connector}</span></div>` : ''}
           ${it.length_m != null ? html`<div><span class="k">Length</span><span>${it.length_m} m</span></div>` : ''}
           ${it.members?.length > 1 ? html`<div><span class="k">Includes</span><span>${it.members.map((m, i) => html`${i ? html`<br>` : ''}${m.label}${m.details ? ` (${m.details})` : ''}`)}</span></div>` : ''}

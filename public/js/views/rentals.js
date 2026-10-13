@@ -66,7 +66,8 @@ export default async function rentalsView({ el, query, isActive }) {
           ${r.status === 'active' && r.end_date && r.end_date < today ? html` <span class="badge pat-bad"><span class="ico">✕</span>Past end date</span>` : ''}</td>
         <td class="num">${r.out_count}</td><td class="num">${r.returned_count}</td>
         <td class="num">${r.lost_count ? html`<span class="badge st-lost"><span class="ico">?</span>${r.lost_count}</span>` : 0}</td>
-        <td>${r.status === 'active' ? html`<span class="badge st-rental"><span class="ico">●</span>Active</span>` : html`<span class="badge pat-na"><span class="ico">✓</span>Completed</span>`}</td>
+        <td>${r.status === 'active' && r.ended_at ? html`<span class="badge st-dis" title="Nothing more can go out on it: items can only be returned"><span class="ico">■</span>Ended</span>`
+          : r.status === 'active' ? html`<span class="badge st-rental"><span class="ico">●</span>Active</span>` : html`<span class="badge pat-na"><span class="ico">✓</span>Completed</span>`}</td>
       </tr>`)}</tbody></table></div>`
       : html`<div class="card"><div class="empty">${s.q ? 'No rentals match.' : s.status === 'active' ? 'No active rentals. Click “New rental” to create one.' : 'Nothing here.'}</div></div>`);
   }

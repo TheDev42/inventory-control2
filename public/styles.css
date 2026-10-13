@@ -401,6 +401,10 @@ table.data tbody tr.pk-blocked td { opacity: .55; }
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 th.ck, td.ck { width: 34px; padding-right: 0; }
+/* a gap in the barcode numbers: a very small arrow on the line between the two rows, at the left edge */
+td.ck { position: relative; }
+.gap-mark { position: absolute; left: 1px; top: 0; transform: translateY(-50%); font-size: .5rem; line-height: 1; color: var(--critical); cursor: help; z-index: 1; }
+.gap-mark.below { top: 100%; }
 .pk-case { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: .85rem; }
 .pk-case select { max-width: 220px; }
 .containers-table td .badge { margin-left: 6px; }
@@ -467,6 +471,8 @@ table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 65
   .cards td { display: block; min-width: 0; background: transparent !important; white-space: normal; }
   .cards table.data td { padding: 0; border: 0; } /* beats the desktop cell padding/border */
   .cards td:empty { display: none; }
+  .cards tbody tr { position: relative; } /* the gap arrow sits on the card's own edge, not the tick box's */
+  .cards td.ck { position: static; }
 
   /* inventory: tick + barcode + date on top, then item, ends | length, status | PAT */
   .inventory-table tbody tr[data-id] { grid-template-columns: 26px 1fr auto; grid-template-areas: "ck bc ad" ". it it" ". en le" ". st pa"; }

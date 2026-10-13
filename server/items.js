@@ -1,7 +1,7 @@
 import {
   all, get, run, tx, today, addDays, addMonths, nowIso, logEvent, HttpError,
 } from './db.js';
-import { STATUS_LABEL, cap, normalizeBarcode, parseOutputs, formatOutputs, parseOwner } from './catalog.js';
+import { STATUS_LABEL, BARCODE_DIGITS, cap, normalizeBarcode, parseOutputs, formatOutputs, parseOwner } from './catalog.js';
 import { getCatalog, fieldsFor } from './categories.js';
 
 /* ---------- SQL fragments ---------- */
@@ -38,12 +38,13 @@ export const getContainerByBarcode = (barcode) => get('SELECT * FROM containers 
 export function describeItem(item) {
   const parts = [`${cap(item.category)} ${item.type}${item.category2 ? ` + ${cap(item.category2)} ${item.type2}` : ''}`];
   if (item.name) parts.push(item.name);
+  // an end that isn't set is simply left out (plenty of kit has only the one connector)
   if (item.male_connector || item.female_connector) {
-    parts.push(`${item.male_connector || '?'} → ${item.female_connector || '?'}`);
+    parts.push([item.male_connector, item.female_connector].filter(Boolean).join(' → '));
   }
   if (item.input_connector || item.outputs) {
     const outs = formatOutputs(item.outputs);
-    parts.push(`${item.input_connector || '?'} in${outs ? ` → ${outs} out` : ''}`);
+    parts.push([item.input_connector && `${item.input_connector} in`, outs && `${outs} out`].filter(Boolean).join(' → '));
   }
   return parts.join(' · ');
 }
@@ -70,6 +71,25 @@ const SORTS = {
 };
 
 const escapeLike = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
+
+// Flags each numbered item whose barcode does not follow on from the one before it (00013 then 00015: 00015 gets
+// gap_before). It looks at every barcode in the system, containers included, not just the rows listed, so a
+// filter or a page break never invents a gap. The lowest number of all has nothing before it, so it is never flagged.
+function markBarcodeGaps(items) {
+  const numbered = items.filter((it) => /^\d+$/.test(it.barcode) && Number(it.barcode) > 0);
+  if (!numbered.length) return;
+  // the number before it, as it would be written: same width, or the standard width (99999 comes before 100000)
+  const prevOf = (it) => [it.barcode.length, BARCODE_DIGITS].map((w) => String(Number(it.barcode) - 1).padStart(w, '0'));
+  const used = new Set();
+  const prevs = [...new Set(numbered.flatMap(prevOf))];
+  for (let i = 0; i < prevs.length; i += 400) {
+    const chunk = prevs.slice(i, i + 400);
+    const marks = chunk.map(() => '?').join(',');
+    for (const r of all(`SELECT barcode FROM items WHERE barcode IN (${marks}) UNION SELECT barcode FROM containers WHERE barcode IN (${marks})`, ...chunk, ...chunk)) used.add(r.barcode);
+  }
+  const lowest = get(`SELECT MIN(CAST(barcode AS INTEGER)) AS n FROM items WHERE barcode NOT GLOB '*[^0-9]*'`).n;
+  for (const it of numbered) if (Number(it.barcode) > lowest && !prevOf(it).some((code) => used.has(code))) it.gap_before = 1;
+}
 
 export function listItems(query = {}) {
   const where = [];
@@ -143,6 +163,7 @@ export function listItems(query = {}) {
       ...allArgs
     ).n;
     const items = all(`${itemSelect()} ${whereSql} ${orderSql} LIMIT ? OFFSET ?`, ...allArgs, limit, offset);
+    markBarcodeGaps(items);
     return { items, total, whereSql, args: allArgs };
   };
 
@@ -244,6 +265,8 @@ export function cleanItem(d) {
   if (length !== null && !Number.isFinite(Number(length))) throw new HttpError(400, `Invalid length "${d.length_m}"`);
   const cost = str(d.cost);
   if (cost !== null && (!Number.isFinite(Number(cost)) || Number(cost) < 0)) throw new HttpError(400, `Invalid cost "${d.cost}"`);
+  const weight = str(d.weight_kg);
+  if (weight !== null && (!Number.isFinite(Number(weight)) || Number(weight) < 0)) throw new HttpError(400, `Invalid weight "${d.weight_kg}"`);
   let patRequired;
   if (d.pat_required === undefined || d.pat_required === null || d.pat_required === '') {
     patRequired = !(category === 'SOUND' && type === 'cable') ? 1 : 0; // signal cables don't need PAT
@@ -269,6 +292,7 @@ export function cleanItem(d) {
     container_id: containerId,
     location: str(d.location),
     cost: cost === null ? null : Number(cost),
+    weight_kg: weight === null ? null : Number(weight),
   };
 }
 
@@ -278,10 +302,10 @@ function insertItem(c) {
   const ts = nowIso();
   const res = run(
     `INSERT INTO items (barcode, category, type, category2, type2, name, male_connector, female_connector, input_connector, outputs, length_m,
-       pat_required, pat_interval_months, container_id, owner, location, cost, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       pat_required, pat_interval_months, container_id, owner, location, cost, weight_kg, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     c.barcode, c.category, c.type, c.category2, c.type2, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, ts, ts
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, c.weight_kg, ts, ts
   );
   return getItem(Number(res.lastInsertRowid));
 }
@@ -335,9 +359,9 @@ export function updateItem(id, data) {
   if (existing.status === 'sold' && c.container_id) throw new HttpError(409, 'Sold items cannot be stored in a container');
   run(
     `UPDATE items SET barcode=?, category=?, type=?, category2=?, type2=?, name=?, male_connector=?, female_connector=?, input_connector=?, outputs=?, length_m=?,
-       pat_required=?, pat_interval_months=?, container_id=?, owner=?, location=?, cost=?, updated_at=? WHERE id=?`,
+       pat_required=?, pat_interval_months=?, container_id=?, owner=?, location=?, cost=?, weight_kg=?, updated_at=? WHERE id=?`,
     c.barcode, c.category, c.type, c.category2, c.type2, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, nowIso(), id
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, c.weight_kg, nowIso(), id
   );
   const item = getItem(id);
   logEvent({ action: 'edited', item, detail: 'Details edited' });
@@ -383,6 +407,28 @@ export function setCost(itemIds, costValue) {
     if (updated) logEvent({ action: 'cost', detail: `Cost of ${updated} item(s) set to £${cost.toFixed(2)}` });
   });
   return { updated, matched: ids.length, cost };
+}
+
+// Sets the weight (kg) of many items at once (e.g. every 10 m 16A lead). Unknown ids are ignored.
+export function setWeight(itemIds, weightValue) {
+  const raw = str(weightValue);
+  if (raw === null || !Number.isFinite(Number(raw)) || Number(raw) < 0) throw new HttpError(400, `Invalid weight "${weightValue}"`);
+  if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
+  if (itemIds.length > 5000) throw new HttpError(400, 'Too many items at once (max 5000)');
+  const ids = [...new Set(itemIds.map(Number).filter(Number.isInteger))];
+  const weight = Number(raw);
+  let updated = 0;
+  tx(() => {
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      updated += run(
+        `UPDATE items SET weight_kg = ?, updated_at = ? WHERE (weight_kg IS NULL OR weight_kg != ?) AND id IN (${chunk.map(() => '?').join(',')})`,
+        weight, nowIso(), weight, ...chunk
+      ).changes;
+    }
+    if (updated) logEvent({ action: 'weight', detail: `Weight of ${updated} item(s) set to ${weight} kg` });
+  });
+  return { updated, matched: ids.length, weight };
 }
 
 export function deleteItem(id) {

@@ -57,6 +57,8 @@ export default async function containerView({ el, args, isActive }) {
           <div class="field"><label for="l-event">Event</label><input id="l-event" name="event" type="text" maxlength="60" value="${label.event}"></div>
           <div class="field"><label for="l-date">Date</label><input id="l-date" name="date" type="date" value="${label.date}"></div>
           <div class="field"><label for="l-box">Box no.</label><input id="l-box" name="box" type="text" maxlength="20" placeholder="e.g. 2 of 3" value="${label.box}"></div>
+          <div class="field"><label for="l-weight">NET weight</label><input id="l-weight" name="weight" type="text" maxlength="20" placeholder="e.g. 12.5 kg" value="${label.weight}">
+            <span class="hint">Printed by the barcode. Added up from the weight of each item in the case${label.unweighed ? html` — <strong>${plural(label.unweighed, 'item')} in it ${label.unweighed === 1 ? 'has' : 'have'} no weight set</strong>, so ${label.weight ? 'the real figure is higher' : 'there is nothing to add up yet'}` : ''}. Leave it blank to print no weight.</span></div>
           <div class="field wide"><label for="l-contents">Contents <span class="muted">— one line per kind of item; edit it freely</span></label>
             <textarea id="l-contents" name="contents" rows="8" spellcheck="false">${label.contents}</textarea>
             <div><button class="btn ghost small" type="button" data-act="label-reset">Reset from what is in the case</button></div>
@@ -122,11 +124,14 @@ export default async function containerView({ el, args, isActive }) {
       $('#l-box', el)?.focus();
     } else if (act === 'label-reset') {
       try {
-        label.contents = (await api.get(`/api/containers/${id}/label-defaults`)).contents;
+        const fresh = await api.get(`/api/containers/${id}/label-defaults`);
+        label.contents = fresh.contents;
+        label.weight = fresh.weight;
         $('#l-contents', el).value = label.contents;
+        $('#l-weight', el).value = label.weight;
       } catch (err) { toast(err.message, 'error', 5000); }
     } else if (act === 'label-open' || act === 'label-download') {
-      const p = new URLSearchParams({ client: label.client, event: label.event, date: label.date, box: label.box, contents: label.contents });
+      const p = new URLSearchParams({ client: label.client, event: label.event, date: label.date, box: label.box, weight: label.weight, contents: label.contents });
       if (act === 'label-download') {
         p.set('download', '1');
         const a = document.createElement('a');

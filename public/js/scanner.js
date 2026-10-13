@@ -11,7 +11,7 @@ export const MODES = [
   { id: 'lookup', label: 'Lookup', hint: 'Scan to open an item or container' },
   { id: 'out', label: 'Scan OUT', hint: 'Scan to add items to the selected rental' },
   { id: 'return', label: 'Return', hint: 'Scan anywhere to return items to active inventory' },
-  { id: 'store', label: 'Store', hint: 'Scan to put items into the selected container' },
+  { id: 'store', label: 'Store', hint: 'Scan to put items into the selected container. An item that is out on a rental is returned as it goes in' },
   { id: 'pat', label: 'PAT test', hint: 'Scan to record a PAT result' },
 ];
 
@@ -46,9 +46,9 @@ export function setMode(mode, ctx = {}) {
 export async function refreshLists() {
   try {
     const [rentals, containers] = await Promise.all([api.get('/api/rentals?status=active'), api.get('/api/containers')]);
-    lists.rentals = rentals;
+    lists.rentals = rentals.filter((r) => !r.ended_at); // a rental that has ended can't have anything scanned onto it
     lists.containers = containers;
-    if (state.rentalId && !rentals.some((r) => r.id === state.rentalId)) state.rentalId = null;
+    if (state.rentalId && !lists.rentals.some((r) => r.id === state.rentalId)) state.rentalId = null;
     if (state.containerId && !containers.some((c) => c.id === state.containerId)) state.containerId = null;
     persist();
     renderCtx();

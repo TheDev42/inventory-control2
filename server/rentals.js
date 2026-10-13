@@ -1,6 +1,7 @@
 import { all, get, run, tx, nowIso, logEvent, HttpError, nextJobNumber } from './db.js';
 import { STATUS_LABEL, kindKey } from './catalog.js';
 import { itemSelect, getItem, returnItem } from './items.js';
+import { closeContainer } from './containers.js';
 
 const str = (v) => {
   if (v === undefined || v === null) return null;
@@ -58,7 +59,7 @@ export function rentalItems(rentalId) {
 // The cases on this rental, in the order they were added (that order gives the "1 of 3" box numbers on labels)
 export function rentalCases(rentalId) {
   return all(
-    `SELECT rc.id, rc.container_id, rc.added_at, rc.returned_at, c.name, c.barcode, c.kind,
+    `SELECT rc.id, rc.container_id, rc.added_at, rc.returned_at, c.name, c.barcode, c.kind, c.closed_at,
        (SELECT COUNT(*) FROM rental_items ri WHERE ri.rental_id = rc.rental_id AND ri.case_id = rc.container_id AND ri.outcome IS NULL) AS packed_count
      FROM rental_cases rc JOIN containers c ON c.id = rc.container_id
      WHERE rc.rental_id = ? ORDER BY rc.id`,
@@ -121,10 +122,41 @@ export function completeRental(id, markLost) {
   return { ...getRental(id), marked_lost: stillOut.length };
 }
 
+// Marks the job as ended: it stays active (nothing is marked lost, and Complete works as before), but from now on
+// kit can only come back. Its temporary boxes are closed there and then; what was packed in them stays out on the
+// rental and still has to be scanned back item by item.
+export function endRental(id) {
+  const rental = getRental(id);
+  if (!rental) throw new HttpError(404, 'Rental not found');
+  if (rental.status !== 'active') throw new HttpError(409, `"${rental.name}" is already completed`);
+  if (rental.ended_at) throw new HttpError(409, `"${rental.name}" is already marked as ended`);
+  let closed = 0;
+  tx(() => {
+    const boxes = all(
+      `SELECT c.id FROM rental_cases rc JOIN containers c ON c.id = rc.container_id
+       WHERE rc.rental_id = ? AND c.kind = 'temporary' AND c.closed_at IS NULL ORDER BY rc.id`, id);
+    for (const box of boxes) closeContainer(box.id, { endedRental: rental });
+    closed = boxes.length;
+    run('UPDATE rentals SET ended_at = ? WHERE id = ?', nowIso(), id);
+    logEvent({ action: 'rental_ended', rental, detail: `Rental "${rental.name}" marked as ended${closed ? `, ${closed} temporary box(es) closed` : ''}` });
+  });
+  return { ...getRental(id), closed_boxes: closed };
+}
+
+// Undoes "ended" so kit can go out on the job again. Boxes that were closed stay closed.
+export function resumeRental(id) {
+  const rental = getRental(id);
+  if (!rental) throw new HttpError(404, 'Rental not found');
+  if (!rental.ended_at) throw new HttpError(409, `"${rental.name}" is not marked as ended`);
+  run('UPDATE rentals SET ended_at = NULL WHERE id = ?', id);
+  logEvent({ action: 'rental_resumed', rental, detail: `Rental "${rental.name}" no longer marked as ended` });
+  return getRental(id);
+}
+
 export function reopenRental(id) {
   const rental = getRental(id);
   if (!rental) throw new HttpError(404, 'Rental not found');
-  run(`UPDATE rentals SET status = 'active', completed_at = NULL WHERE id = ?`, id);
+  run(`UPDATE rentals SET status = 'active', completed_at = NULL, ended_at = NULL WHERE id = ?`, id);
   logEvent({ action: 'rental_reopened', rental, detail: `Rental "${rental.name}" reopened` });
   return getRental(id);
 }
@@ -229,10 +261,11 @@ export function packItems(rentalId, itemIds, caseId) {
   });
 }
 
-// The active rental a case is on right now (added to it and not yet scanned back), if any
+// The active rental a case is on right now (added to it and not yet scanned back), if any. A rental that has
+// ended does not count: nothing more goes out on it, so its cases are simply being filled back up.
 export const caseRental = (containerId) => get(
   `SELECT r.* FROM rental_cases rc JOIN rentals r ON r.id = rc.rental_id
-   WHERE rc.container_id = ? AND rc.returned_at IS NULL AND r.status = 'active' ORDER BY rc.id DESC LIMIT 1`, containerId);
+   WHERE rc.container_id = ? AND rc.returned_at IS NULL AND r.status = 'active' AND r.ended_at IS NULL ORDER BY rc.id DESC LIMIT 1`, containerId);
 
 function caseIdOrNull(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -250,8 +283,15 @@ function activeRental(rentalId) {
   return rental;
 }
 
-export function assignCase(rentalId, itemIds, caseId) {
+// As activeRental(), for anything that sends more kit out: not allowed once the rental has been marked as ended
+function openRental(rentalId) {
   const rental = activeRental(rentalId);
+  if (rental.ended_at) throw new HttpError(409, `"${rental.name}" has ended — items can only be returned from it now`);
+  return rental;
+}
+
+export function assignCase(rentalId, itemIds, caseId) {
+  const rental = caseId === null || caseId === undefined || caseId === '' ? activeRental(rentalId) : openRental(rentalId);
   if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
   if (itemIds.length > 1000) throw new HttpError(400, 'Too many items selected at once (max 1000)');
   const cid = caseIdOrNull(caseId);
@@ -266,7 +306,7 @@ export function assignCase(rentalId, itemIds, caseId) {
 }
 
 export function addCaseToRental(rentalId, caseId) {
-  const rental = activeRental(rentalId);
+  const rental = openRental(rentalId);
   const cid = caseIdOrNull(caseId);
   if (!cid) throw new HttpError(400, 'No case chosen');
   const sent = attachCase(rentalId, cid);
@@ -294,6 +334,7 @@ export function addItemsToRental(rentalId, itemIds, caseId = null) {
   const rental = getRental(rentalId);
   if (!rental) throw new HttpError(404, 'Rental not found');
   if (rental.status !== 'active') throw new HttpError(409, `"${rental.name}" is completed — reopen it to add items`);
+  if (rental.ended_at) throw new HttpError(409, `"${rental.name}" has ended — items can only be returned from it now`);
   if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
   if (itemIds.length > 1000) throw new HttpError(400, 'Too many items selected at once (max 1000)');
   const cid = caseIdOrNull(caseId);
@@ -348,7 +389,7 @@ function cleanQty(qty) {
 // since the hash can't be turned back into them — needed so a hire sheet can be printed for this
 // requirement before anything has actually been packed onto the rental.
 export function addRequirement(rentalId, { kindKey: kind, label, details, qty, snapshot = {} }) {
-  const rental = activeRental(rentalId);
+  const rental = openRental(rentalId);
   const k = str(kind);
   const l = str(label);
   if (!k || !l) throw new HttpError(400, 'Choose a kind of item');

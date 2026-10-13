@@ -77,6 +77,9 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
       <div class="field"><label for="f-cost">Cost (£)</label>
         <input id="f-cost" name="cost" type="number" step="0.01" min="0" value="${item.cost ?? ''}" placeholder="e.g. 45.00">
         <span class="hint">What it cost to buy. Only shown on this item's Details tab — never in the inventory list.</span></div>
+      <div class="field"><label for="f-weight">Weight (kg)</label>
+        <input id="f-weight" name="weight_kg" type="number" step="0.01" min="0" value="${item.weight_kg ?? ''}" placeholder="e.g. 2.5">
+        <span class="hint">What one of these weighs. Added up into the NET weight printed on a case label.</span></div>
     </div>`;
 }
 
@@ -159,6 +162,7 @@ export function readItemFields(root) {
   if (v('barcode')) out.barcode = v('barcode').value.trim();
   if (v('container_id')) out.container_id = v('container_id').value;
   if (v('cost')) out.cost = v('cost').value;
+  if (v('weight_kg')) out.weight_kg = v('weight_kg').value;
   return out;
 }
 

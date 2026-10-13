@@ -67,10 +67,10 @@ const clean = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
 function itemText(it) {
   if (clean(it.name)) return clean(it.name);
   const parts = [`${cap(it.category)} ${it.type}`];
-  if (it.male_connector || it.female_connector) parts.push(`${it.male_connector || '?'} to ${it.female_connector || '?'}`);
+  if (it.male_connector || it.female_connector) parts.push([it.male_connector, it.female_connector].filter(Boolean).join(' to '));
   if (it.input_connector || it.outputs) {
     const outs = formatOutputs(it.outputs);
-    parts.push(`${it.input_connector || '?'} in${outs ? `, ${outs} out` : ''}`);
+    parts.push([it.input_connector && `${it.input_connector} in`, outs && `${outs} out`].filter(Boolean).join(', '));
   }
   if (it.length_m != null) parts.push(`${it.length_m}m`);
   return parts.join(' ');
@@ -103,7 +103,7 @@ export function labelDate(v) {
 const W = 288; // 4 in, in PDF points
 const H = 432; // 6 in
 
-export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client, event, date, box, contents = [] }) {
+export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client, event, date, box, weight, contents = [] }) {
   const bits = code128B(barcode); // throws before anything is written if the barcode can't be printed
   const doc = new PDFDocument({ size: [W, H], margin: 0, info: { Title: `Box label ${barcode}`, Author: company } });
   doc.pipe(res);
@@ -209,6 +209,10 @@ export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client,
     i = j;
   }
   doc.font('Helvetica-Bold').fontSize(13).text(String(barcode), left, by + bh + 5, { width: right - left, align: 'center', lineBreak: false });
+  // NET weight of the contents, in the corner of the strip beside the barcode number
+  if (clean(weight)) {
+    doc.font('Helvetica-Bold').fontSize(10).text(`NET ${clean(weight)}`, left + 12, by + bh + 7, { width: right - left - 24, align: 'right', lineBreak: false });
+  }
   if (clean(name)) {
     doc.font('Helvetica').fontSize(9).text(clean(name), left + 12, by + bh + 22, { width: right - left - 24, align: 'center', height: 11, ellipsis: true });
   }

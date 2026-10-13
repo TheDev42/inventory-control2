@@ -174,9 +174,9 @@ export function detailLine(g) {
   const parts = [];
   if (g.input_connector || g.outputs) {
     const outs = formatOutputs(g.outputs);
-    parts.push(`${g.input_connector || '?'} in${outs ? ` to ${outs} out` : ''}`);
+    parts.push([g.input_connector && `${g.input_connector} in`, outs && `${outs} out`].filter(Boolean).join(' to '));
   } else if (g.male_connector || g.female_connector) {
-    parts.push(`${g.male_connector || '?'} to ${g.female_connector || '?'}`);
+    parts.push([g.male_connector, g.female_connector].filter(Boolean).join(' to '));
   }
   if (g.length_m != null) parts.push(`${g.length_m} m`);
   return parts.join(' / ') || null;

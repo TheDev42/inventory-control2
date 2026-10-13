@@ -137,7 +137,8 @@ export const ends = (it) =>
     ? html`<span class="ends">${it.input_connector ? html`<span class="end in" title="Input connector">${it.input_connector}</span>` : ''}${outputsOf(it).length
       ? html`<span class="arrow" aria-hidden="true">→</span><span class="outs" title="Output connectors">${outputsOf(it).map((o) => html`<span class="end">${o.qty}× ${o.connector}</span>`)}</span>` : ''}</span>`
     : it.male_connector || it.female_connector
-    ? html`<span class="ends"><span class="end m" title="Male end">${it.male_connector || '?'}</span><span class="arrow" aria-hidden="true">→</span><span class="end f" title="Female end">${it.female_connector || '?'}</span></span>`
+    ? html`<span class="ends">${it.male_connector ? html`<span class="end m" title="Male end">${it.male_connector}</span>` : ''}${it.male_connector && it.female_connector
+      ? html`<span class="arrow" aria-hidden="true">→</span>` : ''}${it.female_connector ? html`<span class="end f" title="Female end">${it.female_connector}</span>` : ''}</span>`
     : '';
 
 /* ---------- toasts ---------- */

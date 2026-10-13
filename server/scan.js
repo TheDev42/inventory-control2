@@ -26,6 +26,7 @@ function scanOut(item, container, { rentalId }) {
   const rental = getRental(rentalId);
   if (!rental) return result('error', 'Rental not found');
   if (rental.status !== 'active') return result('error', `"${rental.name}" is completed — reopen it to add items`);
+  if (rental.ended_at) return result('error', `"${rental.name}" has ended — items can only be returned from it now`);
 
   if (item) {
     const r = checkout(item, rental, false);
@@ -110,7 +111,16 @@ function scanStore(item, scannedContainer, { containerId }) {
   const rental = caseRental(container.id);
 
   if (item.status === 'on_rental') {
-    if (!rental || item.rental_id !== rental.id) return result('error', `${item.barcode} is out on "${item.rental_name}" — return it first`, { item });
+    if (!rental) {
+      // The container is not going out on a job, so this is kit coming home: it is returned from its rental and
+      // put straight into the container in the one scan.
+      tx(() => {
+        returnItem(item, `Returned from "${item.rental_name}" into ${container.name}`);
+        run('UPDATE items SET container_id = ?, updated_at = ? WHERE id = ?', container.id, nowIso(), item.id);
+      });
+      return result('return', `RETURNED → ${container.name}: ${item.barcode} (${describeItem(item)}) from ${item.rental_name}`, { item: getItem(item.id), container });
+    }
+    if (item.rental_id !== rental.id) return result('error', `${item.barcode} is out on "${item.rental_name}", and ${container.name} is out on "${rental.name}" — return it first`, { item });
     // already on the case's own rental: this just packs it into the case
     if (item.container_id === container.id) return result('warn', `${item.barcode} is already in ${container.name}`, { item });
     tx(() => {

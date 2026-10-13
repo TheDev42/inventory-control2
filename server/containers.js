@@ -81,19 +81,28 @@ export function containerDetail(id) {
 
 // Closes a temporary box for good. What was stored in it is written down first (and stays on its page),
 // then it is emptied so those items are loose stock again. It keeps its barcode, which is never reused.
-export function closeContainer(id) {
+// `endedRental` is passed when the rental the box is on has just been marked as ended: the box is closed even
+// though it is still out, and what was packed in it stays out on that rental, to be scanned back item by item.
+export function closeContainer(id, { endedRental = null } = {}) {
   const container = getContainer(id);
   if (!container) throw new HttpError(404, 'Container not found');
   if (container.kind !== 'temporary') throw new HttpError(409, 'Only temporary boxes can be closed: permanent cases are kept for reuse');
   if (container.closed_at) throw new HttpError(409, `${container.name} is already closed`);
-  const out = get(`SELECT ${onRental('name', '?')} AS name`, id).name;
+  const out = endedRental ? null : get(`SELECT ${onRental('name', '?')} AS name`, id).name;
   if (out) throw new HttpError(409, `${container.name} is still out on "${out}". Scan it back (or take it off the rental) first`);
   tx(() => {
-    const items = all(`${itemSelect()} WHERE i.container_id = ? ORDER BY i.barcode COLLATE NOCASE`, id);
+    // what was in it: whatever is stored in it, plus (when its rental ended) the lines packed into it on that rental
+    const items = all(
+      `${itemSelect()} WHERE i.container_id = ?
+         OR i.id IN (SELECT item_id FROM rental_items WHERE rental_id = ? AND case_id = ? AND outcome IS NULL)
+       ORDER BY i.barcode COLLATE NOCASE`, id, endedRental?.id ?? null, id);
     const snapshot = items.map((it) => ({ id: it.id, barcode: it.barcode, description: describeItem(it) }));
     run('UPDATE items SET container_id = NULL, updated_at = ? WHERE container_id = ?', nowIso(), id);
+    run('UPDATE rental_cases SET returned_at = ? WHERE container_id = ? AND returned_at IS NULL', nowIso(), id);
     run('UPDATE containers SET closed_at = ?, closed_contents = ? WHERE id = ?', nowIso(), JSON.stringify(snapshot), id);
-    logEvent({ action: 'container_closed', container, detail: `Temporary box "${container.name}" closed${items.length ? ` (${items.length} item(s) taken out of it)` : ''}` });
+    logEvent({ action: 'container_closed', container, rental: endedRental, detail: endedRental
+      ? `Temporary box "${container.name}" closed: "${endedRental.name}" ended${items.length ? ` (${items.length} item(s) from it still to scan back)` : ''}`
+      : `Temporary box "${container.name}" closed${items.length ? ` (${items.length} item(s) taken out of it)` : ''}` });
   });
   return getContainer(id);
 }
@@ -205,8 +214,14 @@ export function labelData(id) {
 // Starting values for the "print label" form
 export function labelDefaults(id) {
   const d = labelData(id);
+  // NET weight: the contents' weights added up (the case itself is not counted). Items with no weight set
+  // can't be counted, so the form is told how many there are.
+  const weighed = d.contents.filter((it) => it.weight_kg != null);
+  const net = weighed.reduce((sum, it) => sum + it.weight_kg, 0);
   return {
     client: d.client, event: d.event, date: d.date, box: d.box,
+    weight: weighed.length ? `${Math.round(net * 100) / 100} kg` : '',
+    unweighed: d.contents.length - weighed.length,
     contents: contentsLines(d.contents).join('\n'),
     name: d.container.name, barcode: d.container.barcode,
   };

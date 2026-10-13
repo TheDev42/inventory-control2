@@ -95,7 +95,7 @@ app.get('/api/items/export.csv', (req, res) => {
   const total = items.listItems({ ...req.query, limit: 1 }).total;
   let list = rows;
   for (let off = 1000; off < total; off += 1000) list = list.concat(items.listItems({ ...req.query, limit: 1000, offset: off }).items);
-  const cols = ['barcode', 'category', 'type', 'category2', 'type2', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'status', 'owner',
+  const cols = ['barcode', 'category', 'type', 'category2', 'type2', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'weight_kg', 'status', 'owner',
     'rental_name', 'container_name', 'location', 'pat_required', 'pat_status', 'last_pat_date', 'next_pat_due'];
   // Guard against spreadsheet formula injection in text cells
   const cell = (v) => {
@@ -113,6 +113,8 @@ app.post('/api/items/bulk', (req, res) => res.json(items.bulkCreate(req.body?.it
 app.post('/api/items/owner', (req, res) => res.json(items.setOwner(req.body?.itemIds, req.body?.owner)));
 // Set the cost of many items at once
 app.post('/api/items/cost', (req, res) => res.json(items.setCost(req.body?.itemIds, req.body?.cost)));
+// Set the weight (kg) of many items at once
+app.post('/api/items/weight', (req, res) => res.json(items.setWeight(req.body?.itemIds, req.body?.weight)));
 app.post('/api/items', (req, res) => res.status(201).json(items.createItem(req.body || {})));
 // null (not a 404) when the barcode is unknown, so the UI can check without a console error
 app.get('/api/items/lookup/:barcode', (req, res) => res.json(items.getItemByBarcode(req.params.barcode) || null));
@@ -140,6 +142,9 @@ app.put('/api/rentals/:id', (req, res) => res.json(rentals.updateRental(id(req),
 app.delete('/api/rentals/:id', (req, res) => { rentals.deleteRental(id(req)); res.json({ ok: true }); });
 app.post('/api/rentals/:id/complete', (req, res) => res.json(rentals.completeRental(id(req), !!req.body?.markLost)));
 app.post('/api/rentals/:id/reopen', (req, res) => res.json(rentals.reopenRental(id(req))));
+// "Ended": still active, but nothing more can go out on it (its temporary boxes are closed); resume undoes it
+app.post('/api/rentals/:id/end', (req, res) => res.json(rentals.endRental(id(req))));
+app.post('/api/rentals/:id/resume', (req, res) => res.json(rentals.resumeRental(id(req))));
 // Manual picker: add the chosen items to the rental in one go (same rules as scanning them OUT)
 app.post('/api/rentals/:id/items', (req, res) => res.json(rentals.addItemsToRental(id(req), req.body?.itemIds, req.body?.caseId)));
 // Shipment: which cases are on the rental, and which case each line is packed in (caseId null/"" = no case)
@@ -155,10 +160,13 @@ app.post('/api/rentals/:id/requirements', (req, res) => res.status(201).json(ren
 app.put('/api/rentals/:id/requirements/:reqId', (req, res) => res.json(rentals.updateRequirementQty(id(req), parseInt(req.params.reqId, 10), req.body?.qty)));
 app.delete('/api/rentals/:id/requirements/:reqId', (req, res) => res.json(rentals.removeRequirement(id(req), parseInt(req.params.reqId, 10))));
 // Two PDFs per rental: the internal hire sheet (barcodes, PAT, return boxes) and the client copy (quantities only).
+// Each one is built from the rental as it is at that moment, every time the link is opened or refreshed: no-store
+// stops the browser (or a proxy in front of the app) from showing an older copy instead.
 const sendRentalPdf = (mode, label) => (req, res) => {
   const { rental, items: rows } = rentals.rentalDetail(id(req));
   res.set({
     'Content-Type': 'application/pdf',
+    'Cache-Control': 'no-store, max-age=0',
     // Opens in the browser's PDF viewer (still named properly if saved from there); ?download=1 downloads it instead
     'Content-Disposition': `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${pdfName(rental, label)}"`,
   });
@@ -174,7 +182,7 @@ app.post('/api/containers', (req, res) => res.status(201).json(containers.create
 app.get('/api/containers/:id', (req, res) => res.json(containers.containerDetail(id(req))));
 app.put('/api/containers/:id', (req, res) => res.json(containers.updateContainer(id(req), req.body || {})));
 app.delete('/api/containers/:id', (req, res) => { containers.deleteContainer(id(req)); res.json({ ok: true }); });
-// 4" x 6" case label. Query: client, event, date (YYYY-MM-DD), box, contents (one line per row), download=1 to save instead of
+// 4" x 6" case label. Query: client, event, date (YYYY-MM-DD), box, weight (the NET weight, e.g. "12.5 kg"), contents (one line per row), download=1 to save instead of
 // opening. Any of those left out is filled in from the case (its contents, and the rental it is packed for), like the form does.
 app.get('/api/containers/:id/label-defaults', (req, res) => res.json(containers.labelDefaults(id(req))));
 app.get('/api/containers/:id/label.pdf', (req, res) => {
@@ -187,11 +195,12 @@ app.get('/api/containers/:id/label.pdf', (req, res) => {
     .split(/\r?\n/).map((l) => clean(l, 120)).filter(Boolean).slice(0, 80);
   res.set({
     'Content-Type': 'application/pdf',
+    'Cache-Control': 'no-store, max-age=0',
     'Content-Disposition': `${q.download === '1' ? 'attachment' : 'inline'}; filename="label-${safeFilename(defaults.name)}.pdf"`,
   });
   writeLabelPdf(res, {
     company: COMPANY, barcode: defaults.barcode, name: defaults.name,
-    client: field('client', 60), event: field('event', 60), date: field('date', 20), box: field('box', 20), contents,
+    client: field('client', 60), event: field('event', 60), date: field('date', 20), box: field('box', 20), weight: field('weight', 20), contents,
   });
 });
 // Closes temporary boxes that have finished their job (used on a rental, now empty and not on an active rental)

@@ -84,6 +84,9 @@ export default async function inventoryView({ el, query, isActive }) {
       <label class="ctx-field">Set cost to
         <input id="bulk-cost" type="number" step="0.01" min="0" inputmode="decimal" placeholder="£ e.g. 45.00" aria-label="New cost" style="width:100px"></label>
       <button class="btn small" type="button" data-bulk="apply-cost">Apply</button>
+      <label class="ctx-field">Set weight to
+        <input id="bulk-weight" type="number" step="0.01" min="0" inputmode="decimal" placeholder="kg e.g. 2.5" aria-label="New weight in kg" style="width:100px"></label>
+      <button class="btn small" type="button" data-bulk="apply-weight">Apply</button>
       ${lastTotal > n ? html`<button class="btn ghost small" type="button" data-bulk="all">Select all ${Math.min(lastTotal, MAX_BULK)} matching</button>` : ''}
       <button class="btn ghost small" type="button" data-bulk="clear">Clear</button>
     </div>` : html``);
@@ -95,6 +98,15 @@ export default async function inventoryView({ el, query, isActive }) {
       head.indeterminate = on > 0 && on < boxes.length;
     }
   }
+
+  // A very small arrow on the line between two rows where barcode numbers are missing (00013 then 00015). Only
+  // drawn in barcode order, where "between" means something: counting up the gap is above the flagged row,
+  // counting down it is below it.
+  const gapMark = (rows, i) => {
+    if (s.sort !== 'barcode' || !rows[i].gap_before) return '';
+    const title = `Gap in the barcode numbers: nothing is numbered just before ${rows[i].barcode}`;
+    return html`<span class="gap-mark ${s.dir === 'asc' ? 'above' : 'below'}" title="${title}" role="img" aria-label="${title}">▶</span>`;
+  };
 
   let seq = 0;
   async function load() {
@@ -120,9 +132,9 @@ export default async function inventoryView({ el, query, isActive }) {
     mount($('#inv-results', el), html`
       <div class="table-wrap cards"><table class="data inventory-table">
         <thead><tr><th class="ck"><input type="checkbox" id="inv-all" aria-label="Tick every item on this page"></th>${COLUMNS.map(([key, label]) => html`<th class="sortable" data-sort="${key}" aria-sort="${s.sort === key ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'}">${label}<span class="sort-ind">${s.sort === key ? (s.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`)}</tr></thead>
-        <tbody>${data.items.length ? data.items.map((it) => html`
+        <tbody>${data.items.length ? data.items.map((it, i) => html`
           <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : it.status === 'sold' ? 'is-sold' : ''}" data-id="${it.id}">
-            <td class="ck"><input type="checkbox" class="inv-check" data-id="${it.id}" ${selected.has(it.id) ? 'checked' : ''} aria-label="Tick ${it.barcode}"></td>
+            <td class="ck">${gapMark(data.items, i)}<input type="checkbox" class="inv-check" data-id="${it.id}" ${selected.has(it.id) ? 'checked' : ''} aria-label="Tick ${it.barcode}"></td>
             <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
             <td><div class="cell-main">${it.name || itemTitle(it)} ${ownerBadge(it)}</div>${it.name ? html`<div class="cell-sub">${itemTitle(it)}</div>` : ''}</td>
             <td>${ends(it)}</td>
@@ -199,6 +211,17 @@ export default async function inventoryView({ el, query, isActive }) {
         toast(res.updated
           ? `Cost of ${plural(res.updated, 'item')} set to ${fmtMoney(res.cost)}`
           : `Nothing to change: already ${fmtMoney(res.cost)}`, res.updated ? 'ok' : 'info');
+        selected.clear();
+        load();
+      } catch (err) { toast(err.message, 'error', 5000); }
+    } else if (act === 'apply-weight') {
+      const weight = $('#bulk-weight', el).value;
+      if (weight === '') { toast('Enter a weight first', 'error'); return; }
+      try {
+        const res = await api.post('/api/items/weight', { itemIds: [...selected], weight });
+        toast(res.updated
+          ? `Weight of ${plural(res.updated, 'item')} set to ${res.weight} kg`
+          : `Nothing to change: already ${res.weight} kg`, res.updated ? 'ok' : 'info');
         selected.clear();
         load();
       } catch (err) { toast(err.message, 'error', 5000); }

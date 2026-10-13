@@ -121,6 +121,7 @@ export function createHireApp() {
     const { rental, items } = hire.requestPdfData(req.params.reference);
     res.set({
       'Content-Type': 'application/pdf',
+      'Cache-Control': 'no-store, max-age=0',
       'Content-Disposition': `attachment; filename="${pdfName(rental, 'Client')}"`,
     });
     writeRentalPdf(res, { rental, items, company: COMPANY, mode: 'client' });

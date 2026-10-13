@@ -57,9 +57,13 @@ export default async function rentalView({ el, args, isActive }) {
     if (!isActive()) return;
     const { rental: r, items, cases, requirements: reqs } = d;
     const active = r.status === 'active';
+    const ended = active && !!r.ended_at; // still active, but kit can only come back
+    const open = active && !ended; // kit can still go out on it
 
     // Opening an active rental puts the scanner into "scan OUT" for it (once), so scanning just works.
-    if (active && !entered) { setMode('out', { rentalId: id }); }
+    // One that has ended only takes kit back, so it gets Return instead.
+    if (open && !entered) { setMode('out', { rentalId: id }); }
+    if (ended && !entered) { setMode('return'); }
     entered = true;
 
     const counts = { all: items.length, out: 0, returned: 0, lost: 0 };
@@ -80,16 +84,18 @@ export default async function rentalView({ el, args, isActive }) {
       <div class="crumbs"><a href="#/rentals">Rentals</a> / ${r.job_number ? html`${r.job_number} · ` : ''}${r.name}</div>
       <div class="page-head">
         <div>
-          <h1>${r.job_number ? html`<span class="mono">${r.job_number}</span> · ` : ''}${r.name} ${active ? '' : html`<span class="badge pat-na" style="vertical-align:middle"><span class="ico">✓</span>Completed</span>`}</h1>
+          <h1>${r.job_number ? html`<span class="mono">${r.job_number}</span> · ` : ''}${r.name} ${active ? '' : html`<span class="badge pat-na" style="vertical-align:middle"><span class="ico">✓</span>Completed</span>`}${ended ? html`<span class="badge st-dis" style="vertical-align:middle"><span class="ico">■</span>Ended</span>` : ''}</h1>
           <div class="sub">${r.customer ? html`${r.customer} · ` : ''}${r.start_date ? fmtDate(r.start_date) : 'no start date'} → ${r.end_date ? fmtDate(r.end_date) : 'no end date'}
             ${overdue ? html` <span class="badge pat-bad"><span class="ico">✕</span>Past end date</span>` : ''}</div>
           ${r.notes ? html`<div class="muted" style="margin-top:6px;white-space:pre-wrap">${r.notes}</div>` : ''}
         </div>
         <div class="actions">
-          ${active ? html`<button class="btn" data-act="pick" aria-pressed="${String(picking)}" title="Pick items from the in-stock list instead of scanning">${picking ? 'Hide item picker' : 'Add items'}</button>` : ''}
-          <a class="btn secondary" href="/api/rentals/${id}/pdf" target="_blank" rel="noopener" title="INTERNAL copy for staff: barcodes, PAT dates and return tick-boxes. Not for the client.">Internal PDF (staff)</a>
-          <a class="btn secondary" href="/api/rentals/${id}/client-pdf" target="_blank" rel="noopener" title="CLIENT copy to give the customer: no barcodes or PAT dates, identical items combined into quantities">Client PDF (customer)</a>
+          ${open ? html`<button class="btn" data-act="pick" aria-pressed="${String(picking)}" title="Pick items from the in-stock list instead of scanning">${picking ? 'Hide item picker' : 'Add items'}</button>` : ''}
+          <a class="btn secondary" data-pdf href="/api/rentals/${id}/pdf" target="_blank" rel="noopener" title="INTERNAL copy for staff: barcodes, PAT dates and return tick-boxes. Not for the client.">Internal PDF (staff)</a>
+          <a class="btn secondary" data-pdf href="/api/rentals/${id}/client-pdf" target="_blank" rel="noopener" title="CLIENT copy to give the customer: no barcodes or PAT dates, identical items combined into quantities">Client PDF (customer)</a>
           <button class="btn secondary" data-act="edit">Edit details</button>
+          ${open ? html`<button class="btn secondary" data-act="end" title="The job is over: nothing more can be scanned onto it, only returned. Its temporary boxes are closed. Nothing is marked lost.">Mark as ended</button>` : ''}
+          ${ended ? html`<button class="btn secondary" data-act="resume" title="Lets items go out on this rental again. Boxes that were closed stay closed.">Undo ended</button>` : ''}
           ${active ? html`<button class="btn secondary" data-act="complete" title="Closes the rental. Anything not returned is marked LOST.">Complete rental</button>` : html`<button class="btn secondary" data-act="reopen">Reopen</button>`}
           <button class="btn danger" data-act="delete">Delete</button>
         </div>
@@ -107,7 +113,8 @@ export default async function rentalView({ el, args, isActive }) {
         <div class="form-actions"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" data-act="edit">Cancel</button></div>
       </form>` : ''}
 
-      ${active ? html`<div class="notice scan-notice">
+      ${ended ? html`<div class="notice warn"><strong>This rental has ended</strong> (${fmtDateTime(r.ended_at)}). Nothing more can be scanned onto it — items can only come back. Scan each one in <strong>Return</strong> mode, or in <strong>Store</strong> mode to return it and put it straight into a container. ${counts.out ? html`${plural(counts.out, 'item')} still to come back.` : 'Everything is back.'}</div>` : ''}
+      ${ended ? '' : active ? html`<div class="notice scan-notice">
         <div class="actions" style="justify-content:space-between">
           <span class="live-note"><span class="live-dot"></span>
             <span>Scanner is live on this page. ${scanningHere && scanState.mode === 'out' ? html`<strong>Scanning items OUT onto this rental.</strong> Scan a case OUT to put it on the rental with everything in it packed into it.`
@@ -119,7 +126,7 @@ export default async function rentalView({ el, args, isActive }) {
           </span>
         </div></div>` : html`<div class="notice warn">This rental is completed. Reopen it to add more items to it.</div>`}
 
-      ${active && picking ? html`<div id="picker-host" style="margin-bottom:16px"></div>` : ''}
+      ${open && picking ? html`<div id="picker-host" style="margin-bottom:16px"></div>` : ''}
 
       <div class="kpis">
         <div class="kpi"><div class="label">Items on sheet</div><div class="value">${counts.all}</div></div>
@@ -134,14 +141,14 @@ export default async function rentalView({ el, args, isActive }) {
         ${cases.length ? html`<div class="case-list">${cases.map((c) => html`
           <div class="case-row ${caseFilter === String(c.container_id) ? 'on' : ''}">
             <div class="case-main"><a href="#/containers/${c.container_id}"><strong>${c.name}</strong></a> ${c.kind === 'temporary' ? tempBadge : ''} <span class="barcode small-text">${c.barcode}</span></div>
-            <div class="case-meta">${plural(c.packed_count, 'item')} packed · ${c.returned_at ? 'case back' : 'with this rental'}</div>
+            <div class="case-meta">${plural(c.packed_count, 'item')} packed · ${c.closed_at ? 'box closed' : c.returned_at ? 'case back' : 'with this rental'}</div>
             <div class="actions">
               <button class="btn ghost small" type="button" data-case-filter="${c.container_id}">${caseFilter === String(c.container_id) ? 'Show all' : 'Show items'}</button>
-              ${active ? html`<a class="btn ghost small" href="/api/containers/${c.container_id}/label.pdf" target="_blank" rel="noopener" title="Print this case's 4 x 6 label (contents, client, event and box number filled in from this rental)">Label</a>
+              ${active && !c.closed_at ? html`<a class="btn ghost small" href="/api/containers/${c.container_id}/label.pdf" target="_blank" rel="noopener" title="Print this case's 4 x 6 label (contents, client, event and box number filled in from this rental)">Label</a>
               <button class="btn ghost small" type="button" data-case-remove="${c.container_id}" title="Take this case off the rental (its items stay on the rental, just no longer packed in it)">Remove</button>` : ''}
             </div>
           </div>`)}</div>` : html`<div class="muted">No cases on this rental yet. Add one below, or pack lines into a case from the list.</div>`}
-        ${active ? html`<div class="inline-form" style="margin-top:12px">
+        ${open ? html`<div class="inline-form" style="margin-top:12px">
           <select id="case-add" aria-label="Add a case to this rental"><option value="">Add a case…</option>${caseOptions(spare)}</select>
           <button class="btn secondary small" type="button" data-act="case-add">Add case</button>
           <button class="btn secondary small" type="button" data-act="case-new">+ New temporary box</button>
@@ -151,7 +158,7 @@ export default async function rentalView({ el, args, isActive }) {
       <section class="card req-panel" style="margin-bottom:16px">
         <div class="card-head"><h2>Kit requirements</h2>
           <span class="muted small-text">"N of this kind of item" instead of specific barcodes — packing one just means scanning any N matching items.</span>
-          ${active ? html`<button class="btn secondary small" type="button" data-act="add-req">${addingRequirement ? 'Hide' : 'Add by quantity'}</button>` : ''}
+          ${open ? html`<button class="btn secondary small" type="button" data-act="add-req">${addingRequirement ? 'Hide' : 'Add by quantity'}</button>` : ''}
         </div>
         ${reqs.length ? html`<div class="req-list">${reqs.map((r) => html`
           <div class="req-row">
@@ -168,7 +175,7 @@ export default async function rentalView({ el, args, isActive }) {
               <button class="btn ghost small danger" type="button" data-req-remove="${r.id}" title="Remove this kit requirement">Remove</button>
             </span>` : ''}
           </div>`)}</div>` : html`<div class="empty">No kit requirements on this rental.</div>`}
-        ${active && addingRequirement ? html`<div id="req-picker-host" style="margin-top:12px"></div>` : ''}
+        ${open && addingRequirement ? html`<div id="req-picker-host" style="margin-top:12px"></div>` : ''}
       </section>
 
       <div class="toolbar">
@@ -185,18 +192,18 @@ export default async function rentalView({ el, args, isActive }) {
       <div id="bulk-host"></div>
 
       ${shown.length ? html`<div class="table-wrap cards rental-lines"><table class="data">
-        <thead><tr><th class="ck">${active && counts.out ? html`<input type="checkbox" id="ln-all" aria-label="Tick every line that is still out">` : ''}</th><th>Barcode</th><th>Item</th><th>Ends</th><th>PAT</th><th>Status</th><th>Case</th><th></th></tr></thead>
+        <thead><tr><th class="ck">${open && counts.out ? html`<input type="checkbox" id="ln-all" aria-label="Tick every line that is still out">` : ''}</th><th>Barcode</th><th>Item</th><th>Ends</th><th>PAT</th><th>Status</th><th>Case</th><th></th></tr></thead>
         <tbody>${shown.map((it) => {
           const st = lineState(it);
           return html`<tr class="${st === 'lost' ? 'is-lost' : ''}">
-            <td class="ck">${active && st === 'out' ? html`<input type="checkbox" class="ln-check" data-item="${it.id}" ${selected.has(it.id) ? 'checked' : ''} aria-label="Tick ${it.barcode}">` : ''}</td>
+            <td class="ck">${open && st === 'out' ? html`<input type="checkbox" class="ln-check" data-item="${it.id}" ${selected.has(it.id) ? 'checked' : ''} aria-label="Tick ${it.barcode}">` : ''}</td>
             <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
             <td><div class="cell-main">${itemTitle(it)}</div>${it.name ? html`<div class="cell-sub">${it.name}</div>` : ''}</td>
             <td>${ends(it)}</td>
             <td>${patBadge(it.pat_status)}</td>
             <td>${st === 'returned' ? html`<span class="badge st-stock"><span class="ico">✓</span>Returned</span><div class="cell-sub">${fmtDateTime(it.returned_at)}</div>`
               : html`${st === 'lost' ? statusBadge('lost') : statusBadge('on_rental')}<div class="cell-sub">since ${fmtDateTime(it.added_at)}</div>`}</td>
-            <td>${active && st === 'out'
+            <td>${open && st === 'out'
               ? html`<select class="case-select" data-case-for="${it.id}" aria-label="Case for ${it.barcode}"><option value="">— none —</option>${caseOptions(containers, it.case_id)}<option value="__new">+ New temporary box…</option></select>`
               : it.case_name ? html`${it.case_name}${it.case_kind === 'temporary' ? html` <span class="muted small-text">(temp)</span>` : ''}` : ''}</td>
             <td class="nowrap right">${st === 'out' ? html`<button class="btn secondary small" data-return="${it.id}">Return</button> <button class="btn ghost small" data-remove="${it.id}" title="Take it off this rental (undo a mistaken scan)">Remove</button>`
@@ -205,8 +212,8 @@ export default async function rentalView({ el, args, isActive }) {
         : html`<div class="card"><div class="empty">${items.length ? 'Nothing in this view.' : active ? 'No items yet — scan a barcode, or use “Add items” to pick them from the list.' : 'No items were added to this rental.'}</div></div>`}`);
 
     renderBulk();
-    if (active && picking) picker.mount($('#picker-host', el));
-    if (active && addingRequirement) reqPicker.mount($('#req-picker-host', el));
+    if (open && picking) picker.mount($('#picker-host', el));
+    if (open && addingRequirement) reqPicker.mount($('#req-picker-host', el));
   }
 
   async function run(fn, okMsg) {
@@ -233,6 +240,9 @@ export default async function rentalView({ el, args, isActive }) {
 
   el.onclick = async (e) => {
     const t = e.target;
+    // Each press asks for a brand-new PDF (the time in the link stops any older copy being shown instead)
+    const pdf = t.closest('a[data-pdf]');
+    if (pdf) { pdf.href = `${pdf.getAttribute('href').split('?')[0]}?t=${Date.now()}`; return; }
     const scan = t.closest('[data-scan]');
     if (scan) { setMode(scan.dataset.scan, scan.dataset.scan === 'out' ? { rentalId: id } : {}); load(); return; }
     const f = t.closest('[data-filter]');
@@ -289,7 +299,19 @@ export default async function rentalView({ el, args, isActive }) {
       selected.clear();
       $$('.ln-check', el).forEach((b) => { b.checked = false; });
       renderBulk();
-    } else if (act === 'reopen') run(() => api.post(`/api/rentals/${id}/reopen`), 'Rental reopened');
+    } else if (act === 'end') {
+      const d = await api.get(`/api/rentals/${id}`);
+      const boxes = d.cases.filter((c) => c.kind === 'temporary' && !c.closed_at).length;
+      if (!confirm(`Mark this rental as ended? Nothing more can be scanned onto it — items can only be returned.${boxes ? ` ${plural(boxes, 'temporary box', 'temporary boxes')} on it will be closed; what is in ${boxes === 1 ? 'it' : 'them'} still has to be scanned back.` : ''} Nothing is marked lost, and the rental stays open until you complete it.`)) return;
+      try {
+        const res = await api.post(`/api/rentals/${id}/end`);
+        if (scanState.mode === 'out' && scanState.rentalId === id) setMode('return', { rentalId: null });
+        picking = false; addingRequirement = false;
+        toast(`Rental marked as ended${res.closed_boxes ? `. ${plural(res.closed_boxes, 'temporary box', 'temporary boxes')} closed` : ''}`, 'ok', 5000);
+        notifyChanged();
+      } catch (err) { toast(err.message, 'error', 5000); }
+    } else if (act === 'resume') run(() => api.post(`/api/rentals/${id}/resume`), 'Rental no longer marked as ended');
+    else if (act === 'reopen') run(() => api.post(`/api/rentals/${id}/reopen`), 'Rental reopened');
     else if (act === 'complete') {
       const { items } = await api.get(`/api/rentals/${id}`);
       const stillOut = items.filter((it) => lineState(it) === 'out').length;

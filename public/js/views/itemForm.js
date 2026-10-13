@@ -10,14 +10,26 @@ export default async function itemFormView({ el, args, query }) {
   if (editId) {
     try { item = (await api.get(`/api/items/${editId}`)).item; } catch (err) { mount(el, errorBox(err)); return; }
   }
+  // Duplicate: a new item that starts with another item's details. Only what describes the kit is carried over,
+  // not its barcode or where that particular one is right now (its container, rental, status and PAT history).
+  const copyId = !editId && Number(query.get('copy'));
+  let copiedFrom = null;
+  if (copyId) {
+    try {
+      const { container_id: _box, ...src } = (await api.get(`/api/items/${copyId}`)).item;
+      copiedFrom = src.barcode;
+      item = { ...src, barcode: query.get('barcode') || '' };
+    } catch (err) { mount(el, errorBox(err)); return; }
+  }
   const containers = await api.get('/api/containers');
   let addedCount = 0;
 
   mount(el, html`
     <div class="crumbs"><a href="#/inventory">Inventory</a> / ${editId ? html`<a href="#/items/${editId}">${item.barcode}</a> / Edit` : 'New item'}</div>
-    <div class="page-head"><h1>${editId ? 'Edit item' : 'Add item'}</h1></div>
+    <div class="page-head"><h1>${editId ? 'Edit item' : copiedFrom ? 'Duplicate item' : 'Add item'}</h1></div>
+    ${copiedFrom ? html`<div class="notice" style="margin-bottom:16px">Same details as <a class="barcode" href="#/items/${copyId}">${copiedFrom}</a>. Scan or type the new item's barcode and save. <strong>Save &amp; add another</strong> keeps the details for the next one.</div>` : ''}
     <form id="item-form" class="card" autocomplete="off">
-      ${itemFields(item, { containers, isNew: !editId })}
+      ${itemFields(item, { containers, isNew: !editId && !copiedFrom })}
       <div id="form-error"></div>
       <div class="form-actions">
         <button class="btn" type="submit" data-next="0">${editId ? 'Save changes' : 'Save'}</button>

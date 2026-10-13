@@ -167,6 +167,8 @@ ensureColumn('items', 'type2', 'TEXT');
 ensureColumn('containers', 'kind', "TEXT NOT NULL DEFAULT 'permanent'"); // permanent (always used) | temporary (one-off box)
 ensureColumn('rental_items', 'case_id', 'INTEGER REFERENCES containers(id) ON DELETE SET NULL'); // the case this line is packed in for the shipment
 ensureColumn('rentals', 'job_number', 'TEXT'); // JOB-0001, JOB-0002... one counter shared by every rental, however it was created
+ensureColumn('items', 'weight_kg', 'REAL'); // what one of it weighs, in kg — added up into the NET weight on a case label
+ensureColumn('rentals', 'ended_at', 'TEXT'); // set when the job is marked as ended: still active, but kit can only come back
 ensureColumn('rental_requirements', 'member_keys', 'TEXT'); // JSON list of kind keys: a combined hire-site item, filled by any of them
 
 // A short-lived version wrote job numbers as JOB0001; put any of those back to JOB-0001
