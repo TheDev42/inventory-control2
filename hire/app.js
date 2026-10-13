@@ -306,12 +306,22 @@ async function itemPage(key) {
   const inCase = state.flightCase.find((l) => l.key === it.key)?.qty || 0;
   const cap = (s) => s.charAt(0) + s.slice(1).toLowerCase();
   const max = Math.max(1, it.available);
+  // Every picture of it: the main one (the one on the tiles) first, then any extras. More than one makes a carousel.
+  const shots = [...(it.image ? [`/img/type/${it.key}`] : []), ...(it.extra_images || []).map((id) => `/img/extra/${id}`)];
 
   mount(view(), html`<div class="wrap">
     <div class="crumbs"><a href="#/">All categories</a><span aria-hidden="true">/</span>
       <a href="#/c/${it.subcategory}">${data.subcategory?.label || it.subcategory}</a><span aria-hidden="true">/</span><span>${it.label}</span></div>
     <div class="item-layout">
-      ${picture('type', it.key, it.image, it.label, 'item-photo thumb')}
+      ${shots.length > 1 ? html`<div class="gallery" id="gallery">
+        <div class="item-photo thumb gallery-stage">
+          <img id="gallery-main" src="${shots[0]}" alt="${it.label}" decoding="async">
+          <button class="gallery-nav prev" type="button" data-step="-1" aria-label="Previous picture">‹</button>
+          <button class="gallery-nav next" type="button" data-step="1" aria-label="Next picture">›</button>
+          <span class="gallery-count" id="gallery-count" aria-live="polite">1 / ${shots.length}</span>
+        </div>
+        <div class="gallery-thumbs">${shots.map((src, i) => html`<button class="gallery-thumb" type="button" data-shot="${i}" aria-label="Picture ${i + 1} of ${shots.length}" aria-current="${i === 0 ? 'true' : 'false'}"><img src="${src}" alt="" loading="lazy" decoding="async"></button>`)}</div>
+      </div>` : picture('type', it.key, it.image, it.label, 'item-photo thumb')}
       <div>
         <h1>${it.label}</h1>
         <p class="muted">${cap(it.category)} · ${it.type}</p>
@@ -343,6 +353,37 @@ async function itemPage(key) {
       </div>
     </div>
   </div>`);
+
+  // The carousel: arrows, the small pictures underneath, the arrow keys and a sideways swipe all move it
+  const gallery = $('#gallery');
+  if (gallery) {
+    let at = 0;
+    const show = (i) => {
+      at = (i + shots.length) % shots.length;
+      $('#gallery-main').src = shots[at];
+      $('#gallery-count').textContent = `${at + 1} / ${shots.length}`;
+      gallery.querySelectorAll('.gallery-thumb').forEach((b, n) => b.setAttribute('aria-current', String(n === at)));
+    };
+    gallery.addEventListener('click', (e) => {
+      const nav = e.target.closest('[data-step]');
+      const thumb = e.target.closest('[data-shot]');
+      if (nav) show(at + Number(nav.dataset.step));
+      else if (thumb) show(Number(thumb.dataset.shot));
+    });
+    gallery.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') show(at - 1);
+      else if (e.key === 'ArrowRight') show(at + 1);
+    });
+    let startX = null;
+    const stage = gallery.querySelector('.gallery-stage');
+    stage.addEventListener('touchstart', (e) => { startX = e.touches[0].clientX; }, { passive: true });
+    stage.addEventListener('touchend', (e) => {
+      if (startX === null) return;
+      const dx = e.changedTouches[0].clientX - startX;
+      startX = null;
+      if (Math.abs(dx) > 40) show(at + (dx < 0 ? 1 : -1));
+    });
+  }
 
   if (it.available === 0) return;
 

@@ -236,6 +236,18 @@ app.put('/api/hire/meta/:scope/:key', (req, res) => {
   }
   res.json(hire.saveMeta(scope, key, patch));
 });
+// More pictures of an item, for the carousel on its own page (the main picture above is the one on the tiles)
+app.get('/api/hire/extra-img/:id', (req, res) => {
+  const row = hire.getExtraImage(id(req));
+  if (!row) throw new HttpError(404, 'No picture');
+  res.set({ 'Content-Type': row.image_mime, 'Cache-Control': 'no-store' }).send(Buffer.from(row.image));
+});
+app.post('/api/hire/images/:key', (req, res) => {
+  const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.image || '').trim());
+  if (!m) throw new HttpError(400, 'Pictures must be PNG, JPEG or WebP');
+  res.status(201).json(hire.addExtraImage(String(req.params.key), Buffer.from(m[2], 'base64'), m[1]));
+});
+app.delete('/api/hire/images/:id', (req, res) => res.json(hire.removeExtraImage(id(req))));
 // Read-only history: a booking is a real active rental from the moment it is submitted, so there is
 // nothing left to accept, decline or turn into a rental here — just a link to the one it already made.
 app.get('/api/hire/requests', (_req, res) => res.json(hire.listRequests()));

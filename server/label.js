@@ -167,7 +167,8 @@ export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client,
   const cx = left + 12;
   const cy = y2 + 24;
   const cw = right - left - 24;
-  const ch = y3 - cy - 6;
+  const net = clean(weight) ? `NET ${clean(weight)}` : ''; // sits along the bottom of the contents box, so the list stops short of it
+  const ch = y3 - cy - 6 - (net ? 20 : 0);
   const lines = contents.map(clean).filter(Boolean);
   if (lines.length) {
     const opts = (size) => ({ width: cw, lineGap: size * 0.18 });
@@ -194,6 +195,9 @@ export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client,
     doc.fillColor(INK).font('Helvetica').fontSize(size).text(shown.join('\n'), cx, cy, opts(size));
   }
 
+  // NET weight of the contents: centred at the foot of the contents box, just above the barcode strip
+  if (net) doc.fillColor(INK).font('Helvetica-Bold').fontSize(14).text(net, left, y3 - 19, { width: right - left, align: 'center', lineBreak: false });
+
   // barcode strip
   const avail = right - left - 24;
   const mod = Math.min(2.4, avail / bits.length);
@@ -209,10 +213,6 @@ export function writeLabelPdf(res, { company = 'FaderUp', barcode, name, client,
     i = j;
   }
   doc.font('Helvetica-Bold').fontSize(13).text(String(barcode), left, by + bh + 5, { width: right - left, align: 'center', lineBreak: false });
-  // NET weight of the contents, in the corner of the strip beside the barcode number
-  if (clean(weight)) {
-    doc.font('Helvetica-Bold').fontSize(10).text(`NET ${clean(weight)}`, left + 12, by + bh + 7, { width: right - left - 24, align: 'right', lineBreak: false });
-  }
   if (clean(name)) {
     doc.font('Helvetica').fontSize(9).text(clean(name), left + 12, by + bh + 22, { width: right - left - 24, align: 'center', height: 11, ellipsis: true });
   }

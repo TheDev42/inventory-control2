@@ -570,6 +570,9 @@ table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 65
 .hire-tick input { width: 18px; height: 18px; margin: 0; display: block; }
 .combine-bar { margin-bottom: 12px; }
 .combine-bar input[type="text"] { flex: 1 1 220px; min-width: 0; }
+.hire-extras { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 8px; }
+.hire-extra { display: grid; gap: 4px; justify-items: center; }
+.hire-extra img { width: 84px; height: 84px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); display: block; }
 .hire-members { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 4px; }
 .hire-members li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
 .hire-members li:last-child { border-bottom: 0; }

@@ -63,6 +63,17 @@ CREATE TABLE IF NOT EXISTS hire_group_members (
   added_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_hire_group_members ON hire_group_members(group_id);
+
+-- More pictures of an item, shown only on its own page (as a carousel after the main picture, which stays in
+-- hire_meta and is the one used on the tiles). Keyed like hire_meta: a kind key, or "g-<id>" for a combined item.
+CREATE TABLE IF NOT EXISTS hire_images (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL,
+  image BLOB NOT NULL,
+  image_mime TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hire_images_key ON hire_images(key);
 `);
 ensureColumn('hire_meta', 'section', 'TEXT'); // only meaningful for scope='type': groups it under a heading within its sub-category
 ensureColumn('hire_meta', 'hide_secondary', 'INTEGER NOT NULL DEFAULT 0'); // scope='type': 1 = list it under its main sub-category only, not its second one
@@ -213,6 +224,7 @@ function groupTypes(startDate, endDate) {
   if (reservedKinds) for (const g of groups.values()) g.available = Math.max(0, g.available - (reservedKinds.get(g.key) || 0));
   const commonest = (m) => (m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : null);
   const metaByKey = new Map(all(`SELECT key, label, about, section, sort_order, hide_secondary, image IS NOT NULL AS has_image FROM hire_meta WHERE scope = 'type'`).map((m) => [m.key, m]));
+  const extras = extraImageIds();
   const list = [...groups.values()].map(({ spellings, also, ...g }) => {
     const out = {
       ...g,
@@ -229,10 +241,11 @@ function groupTypes(startDate, endDate) {
     out.sort_order = meta?.sort_order ?? null;
     out.hide_secondary = !!meta?.hide_secondary;
     out.image = !!meta?.has_image;
+    out.extra_images = extras.get(g.key) || [];
     out.details = detailLine(out);
     return out;
   });
-  list.push(...combinedItems(list, metaByKey, reservedKinds || new Map()));
+  list.push(...combinedItems(list, metaByKey, reservedKinds || new Map(), extras));
   list.sort(bySortOrder((a, b) => cmpStr(a.label, b.label) || (a.length_m ?? 0) - (b.length_m ?? 0)));
   return list;
 }
@@ -240,7 +253,7 @@ function groupTypes(startDate, endDate) {
 // Builds a combined item from its kinds (each kind is tagged with `group`, so the listing can leave it out).
 // Its total and free count are the sum of its kinds', less any bookings made against the combined item
 // that have not been packed yet. Connectors / length show only when every kind has the same one.
-function combinedItems(kinds, metaByKey, reserved) {
+function combinedItems(kinds, metaByKey, reserved, extras) {
   const byKey = new Map(kinds.map((k) => [k.key, k]));
   const groups = new Map();
   for (const m of all(`SELECT m.kind_key, g.id, g.name FROM hire_group_members m JOIN hire_groups g ON g.id = m.group_id ORDER BY m.added_at, m.rowid`)) {
@@ -280,7 +293,7 @@ function combinedItems(kinds, metaByKey, reserved) {
       ...common, name: g.name, also: [...also.values()],
       total: ks.reduce((n, k) => n + k.total, 0), available: Math.max(0, available),
       label: (meta?.label || g.name).trim(), about: meta?.about || null, section: meta?.section || null,
-      sort_order: meta?.sort_order ?? null, hide_secondary: !!meta?.hide_secondary, image: !!meta?.has_image,
+      sort_order: meta?.sort_order ?? null, hide_secondary: !!meta?.hide_secondary, image: !!meta?.has_image, extra_images: extras.get(key) || [],
       details,
       members: ks.map((k) => ({ key: k.key, label: k.label, details: k.details, length_m: k.length_m, total: k.total, available: k.available })),
     });
@@ -421,9 +434,41 @@ export function saveMeta(scope, key, { label, about, image, imageMime, clearImag
   return { ok: true, scope, key, label: row.label, about: row.about, image: !!row.image };
 }
 
+/* ---------- more pictures of an item (its own page only) ---------- */
+
+const MAX_EXTRA_IMAGES = 8;
+
+// key -> [image id, ...] in the order they were added
+function extraImageIds() {
+  const map = new Map();
+  for (const r of all('SELECT id, key FROM hire_images ORDER BY id')) {
+    if (!map.has(r.key)) map.set(r.key, []);
+    map.get(r.key).push(r.id);
+  }
+  return map;
+}
+
+export const getExtraImage = (id) => get('SELECT image, image_mime, created_at FROM hire_images WHERE id = ?', id);
+
+export function addExtraImage(key, image, imageMime) {
+  if (!ITEM_KEY.test(String(key))) throw new HttpError(400, 'Invalid key');
+  if (!IMAGE_MIMES[imageMime]) throw new HttpError(400, 'Pictures must be PNG, JPEG or WebP');
+  if (image.length > 2_000_000) throw new HttpError(413, 'Picture is too big (2 MB max)');
+  const have = get('SELECT COUNT(*) AS n FROM hire_images WHERE key = ?', key).n;
+  if (have >= MAX_EXTRA_IMAGES) throw new HttpError(409, `An item can have up to ${MAX_EXTRA_IMAGES} extra pictures — remove one first`);
+  const res = run('INSERT INTO hire_images (key, image, image_mime, created_at) VALUES (?, ?, ?, ?)', key, image, imageMime, nowIso());
+  return { id: Number(res.lastInsertRowid) };
+}
+
+export function removeExtraImage(id) {
+  if (!run('DELETE FROM hire_images WHERE id = ?', id).changes) throw new HttpError(404, 'Picture not found');
+  return { ok: true };
+}
+
 /* ---------- combined items (written from the admin app) ---------- */
 
 const dropGroup = (id) => {
+  run('DELETE FROM hire_images WHERE key = ?', groupKey(id));
   run('DELETE FROM hire_group_members WHERE group_id = ?', id);
   run('DELETE FROM hire_groups WHERE id = ?', id);
   run(`DELETE FROM hire_meta WHERE scope = 'type' AND key = ?`, groupKey(id));

@@ -90,6 +90,9 @@ unscanned stock before either of them has actually been packed.
     Pictures are cropped square from the middle and shrunk in the browser before they are saved, so any
     photo works and the database stays small. They live in the database, so the *Backup* button includes
     them.
+  - **More pictures** on a kind of item (up to 8, added in its editor) turn the picture on that item's own page
+    into a carousel: arrows, a row of small pictures underneath, arrow keys and swipe. The main square picture
+    is still the only one used on the tiles, so the front page and category pages do not change.
   - **Combine items** lists several kinds as one, under a name you give it (e.g. 0.5 m and 1 m IEC leads as
     "Short IEC leads"). Tick the items, type the name, press *Combine*; tick a combined item along with others to
     add them to it. Customers see one item whose free count is the total of its kinds and book a quantity of it;

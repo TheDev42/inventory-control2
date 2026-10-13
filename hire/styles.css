@@ -162,6 +162,21 @@ a.tile { transition: transform .14s ease, box-shadow .14s ease, border-color .14
 .item-layout { display: grid; gap: 36px; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); align-items: start; }
 @media (max-width: 760px) { .item-layout { grid-template-columns: 1fr; } }
 .item-photo { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+/* an item with more than one picture: the big one with arrows, and the small ones in a row underneath */
+.gallery { min-width: 0; }
+.gallery-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 50%; border: 0; cursor: pointer;
+  display: grid; place-items: center; font-size: 1.5rem; line-height: 1; padding: 0 0 3px; color: #fff; background: rgba(0, 0, 0, .5);
+}
+.gallery-nav:hover, .gallery-nav:focus-visible { background: rgba(0, 0, 0, .75); }
+.gallery-nav.prev { left: 10px; }
+.gallery-nav.next { right: 10px; }
+.gallery-count { position: absolute; right: 10px; bottom: 10px; padding: 2px 9px; border-radius: 999px; font-size: .78rem; font-weight: 600; color: #fff; background: rgba(0, 0, 0, .55); }
+.gallery-thumbs { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 2px; }
+.gallery-thumb { flex: none; width: 64px; height: 64px; padding: 0; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface-2); cursor: pointer; opacity: .65; }
+.gallery-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gallery-thumb:hover, .gallery-thumb:focus-visible { opacity: 1; }
+.gallery-thumb[aria-current="true"] { opacity: 1; border-color: var(--accent, var(--ink)); }
 .spec { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin: 20px 0; background: var(--surface); }
 .spec div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--line); font-size: .92rem; }
 .spec div:last-child { border-bottom: 0; }

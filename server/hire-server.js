@@ -91,6 +91,16 @@ export function createHireApp() {
   app.get('/api/subcategories/:slug', (req, res) => res.json(hire.subcategoryPage(String(req.params.slug), dateRange(req))));
   app.get('/api/items/:key', (req, res) => res.json(hire.typePage(String(req.params.key), dateRange(req))));
 
+  // The extra pictures on an item's own page (registered before the general picture route below, which would
+  // otherwise take the address). A picture never changes once it is added, so it can be cached hard.
+  app.get('/img/extra/:id', (req, res) => {
+    if (!/^\d{1,9}$/.test(req.params.id)) throw new HttpError(404, 'Not found');
+    const row = hire.getExtraImage(Number(req.params.id));
+    if (!row) throw new HttpError(404, 'No picture');
+    res.set({ 'Content-Type': row.image_mime, 'Cache-Control': 'public, max-age=86400, immutable' });
+    res.send(Buffer.from(row.image));
+  });
+
   // Square (or, for the site logo, scale-to-fit) pictures, straight out of the database. Keys are
   // validated so nothing here can touch the filesystem.
   app.get('/img/:scope/:key', (req, res) => {

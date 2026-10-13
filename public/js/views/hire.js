@@ -128,7 +128,13 @@ export default async function hireView({ el, query, isActive }) {
           <span class="hint">It uses this same picture and wording there. Untick to list it under its main category only.</span></div>` : ''}
         <div class="field"><label>Square picture</label>
           <input data-f="file" type="file" accept="image/png,image/jpeg,image/webp">
-          <span class="hint">Any shape works: it is cropped square from the middle and shrunk before saving.</span></div>
+          <span class="hint">Any shape works: it is cropped square from the middle and shrunk before saving.${scope === 'type' ? ' This is the one shown on the tiles.' : ''}</span></div>
+        ${scope === 'type' ? html`<div class="field"><label>More pictures <span class="muted">— shown only on this item's own page, as a carousel after the main picture</span></label>
+          ${row.extra_images.length ? html`<div class="hire-extras">${row.extra_images.map((id) => html`<div class="hire-extra" data-extra="${id}">
+            <img src="/api/hire/extra-img/${id}" alt="">
+            <button class="btn ghost small danger" type="button" data-remove-extra="${id}">Remove</button></div>`)}</div>` : ''}
+          <input data-f="extras" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+          <span class="hint">Choose one or several, then Save. Up to 8, cropped square like the main picture.</span></div>` : ''}
         <div class="form-actions">
           <button class="btn small" type="button" data-act="save">Save</button>
           ${row.image ? html`<button class="btn ghost small danger" type="button" data-act="remove-image">Remove picture</button>` : ''}
@@ -272,6 +278,12 @@ export default async function hireView({ el, query, isActive }) {
     const file = $('[data-f=file]', tileEl).files[0];
     if (file) body.image = await squareDataUrl(file);
     await api.put(`/api/hire/meta/${scope}/${key}`, body);
+    // extra pictures go up one at a time, so one that is refused does not lose the ones before it
+    let extraError = null;
+    for (const extra of $('[data-f=extras]', tileEl)?.files || []) {
+      try { await api.post(`/api/hire/images/${key}`, { image: await squareDataUrl(extra) }); } catch (err) { extraError = err; break; }
+    }
+    if (extraError) { toast(extraError.message, 'error', 6000); await loadCatalogue(); return; }
     open.delete(`${scope}:${key}`);
     toast('Saved', 'ok');
     await loadCatalogue();
@@ -398,6 +410,19 @@ export default async function hireView({ el, query, isActive }) {
         catalogue = await api.del(`/api/hire/groups/${gid}/members/${removeMember.dataset.removeMember}`);
         toast('Taken out: it is listed on its own again', 'ok');
         renderPictures();
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+    const removeExtra = e.target.closest('button[data-remove-extra]');
+    if (removeExtra) {
+      // taken out of the page in place (no re-render), so anything typed in the editor but not saved yet is kept
+      const id = Number(removeExtra.dataset.removeExtra);
+      try {
+        await api.del(`/api/hire/images/${id}`);
+        const row = catalogue.types.find((t) => t.key === removeExtra.closest('.hire-tile').dataset.key);
+        if (row) row.extra_images = row.extra_images.filter((n) => n !== id);
+        removeExtra.closest('.hire-extra').remove();
+        toast('Picture removed', 'ok');
       } catch (err) { toast(err.message, 'error'); }
       return;
     }
