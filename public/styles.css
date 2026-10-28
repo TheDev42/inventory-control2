@@ -441,7 +441,9 @@ a.plain-link:hover { color: var(--accent); }
 .product-pic .ph svg { width: 100%; height: auto; }
 .product-pic-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .product-title { font-size: 1.4rem; font-weight: 700; margin: 0; }
-a.kpi:hover { text-decoration: none; border-color: var(--line-strong); }
+.conflict-box { margin-top: 14px; }
+.conflict { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0 0; display: grid; gap: 6px; background: var(--surface); }
+.conflict legend { padding: 0 4px; font-weight: 600; }
 a.kpi[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .link-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .link-list li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }

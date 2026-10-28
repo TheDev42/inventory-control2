@@ -45,7 +45,12 @@ export async function api(method, url, body) {
   }
   let data = null;
   try { data = await res.json(); } catch { /* not json */ }
-  if (!res.ok) throw new Error(data?.error || `${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const err = new Error(data?.error || `${res.status} ${res.statusText}`);
+    err.status = res.status;
+    err.data = data; // anything else the server sent with the error (e.g. conflicts to resolve)
+    throw err;
+  }
   return data;
 }
 api.get = (url) => api('GET', url);

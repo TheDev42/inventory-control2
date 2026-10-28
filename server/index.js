@@ -143,6 +143,8 @@ app.delete('/api/comments/:id', (req, res) => { items.deleteComment(id(req)); re
 /* ---------- products (groups of identical items) ---------- */
 app.get('/api/products', (_req, res) => res.json(products.listProducts()));
 app.get('/api/products/:key', (req, res) => res.json(products.productDetail(req.params.key)));
+// Edit every item of a product at once. 409 with `conflicts` / `merge` when the user has to choose first.
+app.put('/api/products/:key', (req, res) => res.json(products.updateProduct(req.params.key, req.body || {})));
 
 /* ---------- rentals ---------- */
 app.get('/api/rentals', (req, res) => res.json(rentals.listRentals(req.query)));
@@ -292,7 +294,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 /* ---------- errors ---------- */
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
-  if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+  if (err instanceof HttpError) return res.status(err.status).json({ error: err.message, ...(err.details || {}) });
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
   if (err?.status >= 400 && err.status < 500) return res.status(err.status).json({ error: err.message });
   console.error(err);

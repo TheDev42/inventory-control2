@@ -26,7 +26,8 @@ const outputRow = (o = { qty: 1, connector: '' }) => html`<div class="output-row
 // What a product is called in the pick-list: its name, its type and its ends / length, so look-alikes can be told apart
 const productText = (p) => [p.label, `${cap(p.template.category)} ${p.template.type}`, p.details].filter(Boolean).join(' · ');
 
-export function itemFields(item = {}, { barcode = true, containers = [], isNew = false, productPicker = false } = {}) {
+// unitFields: false leaves out what belongs to one particular item (owner, location) — for editing a whole product
+export function itemFields(item = {}, { barcode = true, containers = [], isNew = false, productPicker = false, unitFields = true } = {}) {
   const category = item.category || Object.keys(app.meta.catalog)[0];
   const type = item.type || (app.meta.catalog[category] || [])[0];
   const hasEnds = typeFields(category, type) === 'ends';
@@ -67,8 +68,8 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
         <div class="outputs" data-outputs>${(outs.length ? outs : [undefined]).map((o) => outputRow(o))}</div>
         <div><button class="btn secondary small" type="button" data-add-output>+ Add another output</button></div>
         <span class="hint">One line per kind of connector, with how many there are — e.g. 6 × 16A Cee (blue) and 2 × 13A.</span></div>
-      <div class="field"><label for="f-owner">Owner</label>
-        <select id="f-owner" name="owner">${app.meta.owners.map((o) => html`<option value="${o}" ${(item.owner || 'company') === o ? 'selected' : ''}>${app.meta.ownerLabels[o]}</option>`)}</select></div>
+      ${unitFields ? html`<div class="field"><label for="f-owner">Owner</label>
+        <select id="f-owner" name="owner">${app.meta.owners.map((o) => html`<option value="${o}" ${(item.owner || 'company') === o ? 'selected' : ''}>${app.meta.ownerLabels[o]}</option>`)}</select></div>` : ''}
       <div class="field"><label for="f-length">Length (m)</label>
         <input id="f-length" name="length_m" type="number" step="0.01" min="0" value="${item.length_m ?? ''}"></div>
       <div class="field"><span class="lbl">PAT testing</span>
@@ -78,9 +79,9 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
       ${containers.length || item.container_id ? html`<div class="field"><label for="f-container">Container</label>
         <select id="f-container" name="container_id"><option value="">— none —</option>
         ${containers.map((c) => html`<option value="${c.id}" ${c.id === item.container_id ? 'selected' : ''}>${c.name} (${c.barcode})</option>`)}</select></div>` : ''}
-      <div class="field"><label for="f-location">Location</label>
+      ${unitFields ? html`<div class="field"><label for="f-location">Location</label>
         <input id="f-location" name="location" type="text" value="${item.location || ''}" placeholder="e.g. North Yard">
-        <span class="hint">Where this item is kept if it's not in a container — e.g. loose stock at another yard.</span></div>
+        <span class="hint">Where this item is kept if it's not in a container — e.g. loose stock at another yard.</span></div>` : ''}
       <div class="field"><label for="f-cost">Cost (£)</label>
         <input id="f-cost" name="cost" type="number" step="0.01" min="0" value="${item.cost ?? ''}" placeholder="e.g. 45.00">
         <span class="hint">What it cost to buy. Only shown on this item's Details tab — never in the inventory list.</span></div>
@@ -226,9 +227,9 @@ export function readItemFields(root) {
     length_m: v('length_m').value,
     pat_required: v('pat_required').checked,
     pat_interval_months: v('pat_interval_months').value,
-    owner: v('owner').value,
-    location: v('location')?.value.trim() || '',
   };
+  if (v('owner')) out.owner = v('owner').value;
+  if (v('location')) out.location = v('location').value.trim();
   if (v('input_connector')) {
     out.input_connector = v('input_connector').value.trim();
     out.outputs = [...root.querySelectorAll('.output-row')]

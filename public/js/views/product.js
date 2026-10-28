@@ -4,7 +4,7 @@ import {
 import { app, refreshConnectors } from '../state.js';
 import { setInterceptor } from '../scanner.js';
 import { play } from '../audio.js';
-import { errorBox, typeFields, squareDataUrl } from '../ui.js';
+import { errorBox, typeFields, squareDataUrl, itemFields, wireItemFields, readItemFields } from '../ui.js';
 
 /* A product: every item with the same details (the same grouping as the Stock overview and the hire site).
    Shows how many there are and where each one is, the hire site's picture of it, and adds more of it. */
@@ -28,6 +28,24 @@ const spreadText = (s, fmt) => {
   return s.missing ? `${v} (${s.missing} not recorded)` : v;
 };
 
+// Names and display of the product fields the server can report a conflict on
+const FIELD_LABEL = {
+  category: 'Category', type: 'Type', second: 'Second category', name: 'Description', male_connector: 'Male end',
+  female_connector: 'Female end', input_connector: 'Input connector', outputs: 'Outputs', length_m: 'Length',
+  pat_required: 'PAT required', pat_interval_months: 'PAT interval', cost: 'Cost', weight_kg: 'Weight', power_w: 'Power consumption',
+};
+const fieldValue = (field, v) => {
+  if (field === 'pat_required') return v ? 'Yes' : 'No';
+  if (v === null || v === undefined || v === '') return '(none)';
+  if (field === 'weight_kg') return `${v} kg`;
+  if (field === 'power_w') return `${v} W`;
+  if (field === 'length_m') return `${v} m`;
+  if (field === 'cost') return fmtMoney(v);
+  if (field === 'pat_interval_months') return `${v} months`;
+  if (field === 'outputs') return outputsOf({ outputs: v }).map((o) => `${o.qty}× ${o.connector}`).join(', ') || '(none)';
+  return String(v);
+};
+
 const parseCodes = (text) => [...new Set(text.split(/[\n\r\t,;]+/).map((c) => normalizeBarcode(c.trim(), app.meta.barcodeDigits)).filter(Boolean))];
 
 export default async function productView({ el, args, isActive }) {
@@ -35,6 +53,8 @@ export default async function productView({ el, args, isActive }) {
   let adding = false;
   let filter = ''; // '' = every barcode, otherwise one status
   let codes = ''; // barcodes typed / scanned into the add box, kept when the page redraws
+  let editing = false;
+  let pending = null; // an edit waiting on the user's answers: { fields, conflicts, merge }
 
   // While the add box is open, a scan anywhere on the page goes into it
   setInterceptor(async (code) => {
@@ -81,11 +101,24 @@ export default async function productView({ el, args, isActive }) {
           ${hire.about ? html`<p class="hire-about" style="margin:10px 0 0">${hire.about}</p>` : ''}
           <div class="actions" style="margin-top:14px">
             <button class="btn" type="button" data-act="add" aria-pressed="${String(adding)}">${adding ? 'Hide' : '+ Add items of this product'}</button>
+            <button class="btn secondary" type="button" data-act="edit" aria-pressed="${String(editing)}" title="Change the details of every item of this product at once">${editing ? 'Cancel edit' : 'Edit product'}</button>
             <a class="btn secondary" href="#/items/new?product=${key}" title="Add one with the full item form, already filled in with this product's details">Add one (full form)</a>
             <a class="btn ghost" href="#/hire" title="Change the picture, wording and order on the public hire site">Hire site</a>
           </div>
         </div>
       </section>
+
+      ${editing ? html`<form id="product-form" class="card" style="margin-top:16px" autocomplete="off">
+        <h2>Edit product</h2>
+        <p class="muted">Whatever you change here is changed on <strong>all ${plural(items.length, 'item')}</strong> of this product${c.sold ? ' (sold ones included)' : ''}. Anything you leave alone stays exactly as it is on each item. Owner and location belong to each item, so change those on the item itself.</p>
+        ${['weight_kg', 'power_w', 'cost'].some((f) => spread[f].min !== spread[f].max) ? html`<div class="notice warn" style="margin-bottom:12px">Not every item has the same
+          ${[['weight_kg', 'weight', (v) => `${v} kg`], ['power_w', 'power', (v) => `${v} W`], ['cost', 'cost', fmtMoney]].filter(([f]) => spread[f].min !== spread[f].max)
+            .map(([f, name, fmt], i, list) => html`${i ? (i === list.length - 1 ? ' or ' : ', ') : ''}<strong>${name}</strong> (${fmt(spread[f].min)} – ${fmt(spread[f].max)})`)}.
+          The box shows the newest item's. Leave it as it is to keep each item's own; change it and you'll be asked which items to change.</div>` : ''}
+        ${itemFields(t, { barcode: false, unitFields: false })}
+        <div id="edit-conflicts"></div>
+        <div class="form-actions"><button class="btn" type="submit">Save to all items</button><button class="btn ghost" type="button" data-act="edit">Cancel</button></div>
+      </form>` : ''}
 
       ${adding ? html`<section class="card" style="margin-top:16px">
         <h2>Add items of this product</h2>
@@ -137,14 +170,65 @@ export default async function productView({ el, args, isActive }) {
           <p class="muted small-text" style="margin:14px 0 0">New items of this product are given these details (taken from the most recently added one). Edit an item to change it; changing its description, type, connectors or length moves it to a different product.</p>
         </section>
       </div>`);
+    if (editing) wireItemFields($('#product-form', el));
     if (adding) $('#add-codes', el)?.focus();
+  }
+
+  // The questions to answer before an edit can be saved: one per field the items disagree on, and whether to merge
+  function renderConflicts() {
+    const host = $('#edit-conflicts', el);
+    if (!host || !pending) return;
+    const { conflicts, merge } = pending;
+    mount(host, html`<div class="notice warn conflict-box" role="alert">
+      <strong>Before saving, choose what to do:</strong>
+      ${conflicts.map((cf) => html`<fieldset class="conflict">
+        <legend>${FIELD_LABEL[cf.field] || cf.field}: changing ${fieldValue(cf.field, cf.from)} → <strong>${fieldValue(cf.field, cf.to)}</strong></legend>
+        <div class="muted small-text">The items don't all have the same ${(FIELD_LABEL[cf.field] || cf.field).toLowerCase()} now: ${cf.values.map((v, i) => html`${i ? ', ' : ''}${v.count} × ${fieldValue(cf.field, v.value)}`)}.</div>
+        <label class="check"><input type="radio" name="res-${cf.field}" value="all" checked> Set all ${cf.total} to ${fieldValue(cf.field, cf.to)}</label>
+        <label class="check"><input type="radio" name="res-${cf.field}" value="matching" ${cf.matching ? '' : 'disabled'}> Only change the ${cf.matching} that have ${fieldValue(cf.field, cf.from)} (keep the others' own)</label>
+        <label class="check"><input type="radio" name="res-${cf.field}" value="skip"> Don't change it on any of them</label>
+      </fieldset>`)}
+      ${merge ? html`<fieldset class="conflict">
+        <legend>These details are the same as another product: <a href="#/products/${merge.key}">${merge.label}</a> (${plural(merge.count, 'item')})</legend>
+        <label class="check"><input type="radio" name="res-merge" value="1"> Merge them: they become one product (its picture and hire-site wording are kept, if it has them)</label>
+        <label class="check"><input type="radio" name="res-merge" value="0" checked> Don't save — I'll change the details so they stay separate</label>
+      </fieldset>` : ''}
+      <div class="actions" style="margin-top:10px"><button class="btn" type="button" data-act="apply-edit">Apply</button><button class="btn ghost" type="button" data-act="drop-edit">Back to the form</button></div>
+    </div>`);
+    host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  async function saveEdit(fields, resolutions = {}, merge = false) {
+    try {
+      const res = await api.put(`/api/products/${key}`, { fields, resolutions, merge });
+      pending = null;
+      editing = false;
+      toast(`Saved to ${plural(res.updated, 'item')}${res.merged ? ', merged with the existing product' : ''}`, 'ok');
+      refreshConnectors();
+      // the details that make it this product changed, so it lives at a new address now (that page loads fresh)
+      if (res.key !== key) location.hash = `#/products/${res.key}`;
+      else notifyChanged();
+    } catch (err) {
+      if (err.status === 409 && (err.data?.conflicts?.length || err.data?.merge)) {
+        pending = { fields, conflicts: err.data.conflicts || [], merge: err.data.merge };
+        renderConflicts();
+      } else toast(err.message, 'error', 6000);
+    }
   }
 
   el.onclick = async (e) => {
     const f = e.target.closest('[data-filter]');
     if (f) { e.preventDefault(); filter = filter === f.dataset.filter ? '' : f.dataset.filter; load(); return; }
     const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'add') { adding = !adding; load(); } else if (act === 'remove-pic') {
+    if (act === 'add') { adding = !adding; load(); } else if (act === 'edit') { editing = !editing; pending = null; load(); } else if (act === 'drop-edit') {
+      pending = null;
+      mount($('#edit-conflicts', el), html``);
+    } else if (act === 'apply-edit') {
+      if (!pending) return;
+      if (pending.merge && $('[name=res-merge]:checked', el)?.value !== '1') { pending = null; mount($('#edit-conflicts', el), html``); toast('Not saved — change the details and save again', 'info'); return; }
+      const resolutions = Object.fromEntries(pending.conflicts.map((cf) => [cf.field, $(`[name="res-${cf.field}"]:checked`, el)?.value || 'all']));
+      saveEdit(pending.fields, resolutions, !!pending.merge);
+    } else if (act === 'remove-pic') {
       if (!confirm('Remove the picture? It goes from the hire site too.')) return;
       try { await api.put(`/api/hire/meta/type/${key}`, { image: null }); toast('Picture removed', 'ok'); load(); } catch (err) { toast(err.message, 'error', 5000); }
     } else if (act === 'add-save') {
@@ -167,6 +251,14 @@ export default async function productView({ el, args, isActive }) {
     }
   };
 
+  el.onsubmit = (e) => {
+    if (e.target.id !== 'product-form') return;
+    e.preventDefault();
+    pending = null;
+    mount($('#edit-conflicts', el), html``);
+    saveEdit(readItemFields(e.target));
+  };
+
   el.oninput = (e) => { if (e.target.id === 'add-codes') codes = e.target.value; };
 
   el.onchange = async (e) => {
@@ -181,5 +273,5 @@ export default async function productView({ el, args, isActive }) {
   };
 
   await load();
-  return { refresh: load, destroy() { el.onclick = null; el.oninput = null; el.onchange = null; } };
+  return { refresh: load, destroy() { el.onclick = null; el.oninput = null; el.onchange = null; el.onsubmit = null; } };
 }
