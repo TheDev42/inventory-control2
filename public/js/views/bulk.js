@@ -59,6 +59,7 @@ const HEADER_ALIASES = {
   location: 'location', yard: 'location', storedat: 'location',
   cost: 'cost', price: 'cost',
   weight: 'weight_kg', weightkg: 'weight_kg', kg: 'weight_kg',
+  power: 'power_w', powerw: 'power_w', watts: 'power_w', w: 'power_w', powerconsumption: 'power_w',
   length: 'length_m', lengthm: 'length_m', lenm: 'length_m',
   pat: 'pat_required', patrequired: 'pat_required',
   interval: 'pat_interval_months', patinterval: 'pat_interval_months', patintervalmonths: 'pat_interval_months',
@@ -105,8 +106,8 @@ export default async function bulkView({ el }) {
     <div id="tab-list" class="stack">
       <section class="card">
         <h2>1 · What are these items?</h2>
-        <p class="muted">Everything below is applied to every barcode in the list. Cables, adapters and splitters take a male and female end; distros take one input and a list of outputs.</p>
-        <div id="bulk-fields">${itemFields({}, { barcode: false, containers, isNew: true })}</div>
+        <p class="muted">Everything below is applied to every barcode in the list. Adding more of something you already have? Pick it under <strong>Product</strong> and the rest fills itself in. Cables, adapters and splitters take a male and female end; distros take one input and a list of outputs.</p>
+        <div id="bulk-fields">${itemFields({}, { barcode: false, containers, isNew: true, productPicker: true })}</div>
       </section>
       <section class="card">
         <h2>2 · Barcodes</h2>
@@ -135,7 +136,7 @@ export default async function bulkView({ el }) {
     <div id="tab-csv" class="stack" hidden>
       <section class="card">
         <h2>Import from CSV</h2>
-        <p class="muted">Columns: <code>barcode, category, type</code> are required; optional: <code>name, male_connector, female_connector, length_m, pat_required, pat_interval_months, location, cost, weight_kg, category2, type2</code>. <code>owner</code> is <code>company</code> (the default) or <code>me</code>. Distros use <code>input_connector</code> and <code>outputs</code> (e.g. <code>6x 16A Cee (blue); 2x 13A (BS1363)</code>) instead of the male/female ends.
+        <p class="muted">Columns: <code>barcode, category, type</code> are required; optional: <code>name, male_connector, female_connector, length_m, pat_required, pat_interval_months, location, cost, weight_kg, power_w, category2, type2</code>. <code>owner</code> is <code>company</code> (the default) or <code>me</code>. Distros use <code>input_connector</code> and <code>outputs</code> (e.g. <code>6x 16A Cee (blue); 2x 13A (BS1363)</code>) instead of the male/female ends.
           Category is ${Object.keys(app.meta.catalog).join(' / ')} (<a href="#/categories">add more</a>). Paste from a spreadsheet, or choose a file. Barcodes that a spreadsheet has stripped of leading zeros (12 instead of 00012) are padded back to ${app.meta.barcodeDigits || 5} digits. <a href="#" id="csv-template">Download a template</a>.</p>
         <div class="field"><label for="csv-file">CSV file</label><input id="csv-file" type="file" accept=".csv,.txt,text/csv"></div>
         <div class="field" style="margin-top:10px"><label for="csv-text">…or paste here</label><textarea id="csv-text" rows="8" spellcheck="false"></textarea></div>
@@ -146,6 +147,7 @@ export default async function bulkView({ el }) {
     </div>`);
 
   wireItemFields($('#bulk-fields', el));
+  $('#bulk-fields', el).addEventListener('product-picked', (e) => toast(`Details filled in from ${e.detail.label}`, 'ok'));
   const ta = $('#bulk-codes', el);
   const submit = $('#bulk-submit', el);
 

@@ -149,6 +149,20 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_item ON events(item_id);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
+
+-- Kit that has to go out together. kind 'child': the child (a power adapter, an accessory) goes wherever the
+-- parent goes; a child can belong to more than one parent. kind 'pair': the two only work together (a
+-- transmitter and its receiver), so each needs the other — stored once, read both ways.
+CREATE TABLE IF NOT EXISTS item_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  parent_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  child_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (parent_id, child_id)
+);
+CREATE INDEX IF NOT EXISTS idx_links_parent ON item_links(parent_id);
+CREATE INDEX IF NOT EXISTS idx_links_child ON item_links(child_id);
 `);
 
 // Databases created by older versions are upgraded in place (columns are only ever added).
@@ -170,6 +184,7 @@ ensureColumn('rentals', 'job_number', 'TEXT'); // JOB-0001, JOB-0002... one coun
 ensureColumn('items', 'weight_kg', 'REAL'); // what one of it weighs, in kg — added up into the NET weight on a case label
 ensureColumn('rentals', 'ended_at', 'TEXT'); // set when the job is marked as ended: still active, but kit can only come back
 ensureColumn('rental_requirements', 'member_keys', 'TEXT'); // JSON list of kind keys: a combined hire-site item, filled by any of them
+ensureColumn('items', 'power_w', 'REAL'); // what one of it draws when running, in watts — added up into a rental's power total
 
 // A short-lived version wrote job numbers as JOB0001; put any of those back to JOB-0001
 db.exec(`UPDATE rentals SET job_number = 'JOB-' || SUBSTR(job_number, 4) WHERE job_number GLOB 'JOB[0-9]*'`);

@@ -14,6 +14,7 @@ export default async function itemView({ el, args, isActive }) {
     try { d = await api.get(`/api/items/${id}`); } catch (err) { if (isActive()) mount(el, errorBox(err)); return; }
     if (!isActive()) return;
     const it = d.item;
+    const links = d.links || [];
     it_status_is_repair = it.status === 'repair';
     const missing = ['lost', 'disassembled', 'repair'].includes(it.status);
     const onRental = it.status === 'on_rental';
@@ -21,7 +22,7 @@ export default async function itemView({ el, args, isActive }) {
     const canSell = ['in_stock', 'repair', 'disassembled'].includes(it.status);
 
     mount(el, html`
-      <div class="crumbs"><a href="#/inventory">Inventory</a> / ${it.barcode}</div>
+      <div class="crumbs"><a href="#/inventory">Inventory</a> / <a href="#/products/${it.product_key}">${it.name || itemTitle(it)}</a> / ${it.barcode}</div>
       <div class="card item-hero">
         <div>
           <div class="code">${it.barcode}</div>
@@ -35,6 +36,7 @@ export default async function itemView({ el, args, isActive }) {
           </div>
         </div>
         <div class="actions">
+          <a class="btn secondary" href="#/products/${it.product_key}" title="Every item with the same details: how many, where they are, the picture">Product page</a>
           <a class="btn secondary" href="#/items/${it.id}/edit">Edit</a>
           <a class="btn secondary" href="#/items/new?copy=${it.id}" title="Add another one of these: a new item with the same details, under a new barcode">Duplicate</a>
           ${onRental ? html`<button class="btn" data-act="return">Return to stock</button>` : ''}
@@ -102,8 +104,29 @@ export default async function itemView({ el, args, isActive }) {
               <dt>Length</dt><dd>${it.length_m != null ? `${it.length_m} m` : '—'}</dd>
               <dt>Cost</dt><dd>${it.cost != null ? `£${it.cost.toFixed(2)}` : '—'}</dd>
               <dt>Weight</dt><dd>${it.weight_kg != null ? `${it.weight_kg} kg` : '—'}</dd>
+              <dt>Power</dt><dd>${it.power_w != null ? `${it.power_w} W` : '—'}</dd>
               <dt>Added</dt><dd>${fmtDate(it.created_at)}</dd>
             </dl>
+          </section>
+
+          <section class="card">
+            <h2>Linked kit</h2>
+            <p class="muted small-text" style="margin-top:0">Kit that has to go out with this item. A <strong>pair</strong> only works together (a transmitter and its receiver); a <strong>child</strong> is an accessory, like its power adapter. When this item goes on a job, anything linked that isn't scanned out too is flagged at the top of the rental.</p>
+            ${links.length ? html`<ul class="link-list">${links.map((l) => html`<li>
+              <span class="badge ${l.role === 'pair' ? 'st-rental' : 'st-dis'}"><span class="ico" aria-hidden="true">${l.role === 'pair' ? '⇄' : l.role === 'child' ? '↳' : '↰'}</span>${l.role === 'pair' ? 'Pair' : l.role === 'child' ? 'Child' : 'Parent'}</span>
+              <span class="grow"><a class="barcode" href="#/items/${l.id}">${l.barcode}</a> ${l.name || itemTitle(l)}
+                <span class="muted small-text">· ${l.role === 'child' ? 'accessory of this item' : l.role === 'parent' ? 'this item is its accessory' : 'needed with this item'} · ${l.status === 'on_rental' ? html`out on <a href="#/rentals/${l.rental_id}">${l.rental_name}</a>` : statusLabel(l.status).toLowerCase()}</span></span>
+              <button class="btn ghost small" type="button" data-unlink="${l.link_id}" title="Remove this link (neither item is changed)">Unlink</button></li>`)}</ul>`
+              : html`<div class="muted">Nothing linked.</div>`}
+            <form id="link-form" class="inline-form" style="margin-top:12px" autocomplete="off">
+              <select name="role" aria-label="How it is linked">
+                <option value="pair">Pair with (both needed)</option>
+                <option value="child">Add a child (accessory of this)</option>
+                <option value="parent">Make this a child of</option>
+              </select>
+              <input name="barcode" type="text" inputmode="numeric" placeholder="Barcode (scan or type)" aria-label="The other item's barcode" required style="max-width:180px">
+              <button class="btn secondary" type="submit">Link</button>
+            </form>
           </section>
 
           ${sold ? html`<section class="card"><h2>PAT testing</h2><p class="muted" style="margin:0">Sold items are not PAT tested.${it.last_pat_date ? html` Last test before sale: ${fmtDate(it.last_pat_date)} (${it.last_pat_result === 'pass' ? 'pass' : 'FAIL'}).` : ''}</p></section>` : html`<section class="card">
@@ -169,6 +192,13 @@ export default async function itemView({ el, args, isActive }) {
       }
       return;
     }
+    const unlink = e.target.closest('[data-unlink]');
+    if (unlink) {
+      if (confirm('Remove this link? Both items stay as they are; they just no longer have to go out together.')) {
+        run(() => api.del(`/api/items/${id}/links/${unlink.dataset.unlink}`), 'Unlinked');
+      }
+      return;
+    }
     const del = e.target.closest('[data-del-comment]');
     if (del && confirm('Delete this comment?')) run(() => api.del(`/api/comments/${del.dataset.delComment}`));
   };
@@ -178,6 +208,10 @@ export default async function itemView({ el, args, isActive }) {
     const f = e.target;
     if (f.id === 'comment-form') {
       run(() => api.post(`/api/items/${id}/comments`, { text: f.text.value }), 'Comment added');
+    } else if (f.id === 'link-form') {
+      const role = f.role.value;
+      run(() => api.post(`/api/items/${id}/links`, { role, barcode: f.barcode.value }),
+        role === 'pair' ? 'Paired' : role === 'child' ? 'Child added' : 'Linked as a child');
     } else if (f.id === 'pat-form') {
       scanState.tester = f.tester.value.trim();
       run(() => api.post(`/api/items/${id}/pat`, { result: f.result.value, date: f.date.value, tester: f.tester.value, notes: f.notes.value }),

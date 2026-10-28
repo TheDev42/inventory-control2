@@ -420,6 +420,34 @@ td.avail.none .big-num { color: var(--critical); }
 .chip-place .dot { width: 8px; height: 8px; border-radius: 3px; background: var(--c); }
 table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 650; }
 
+/* ---------- rental: job totals, linked kit ---------- */
+.job-totals { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; }
+.job-total { display: inline-flex; align-items: baseline; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.job-total .lbl { color: var(--ink-2); font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.job-total strong { font-size: 1.15rem; }
+.linked-warn ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.rental-lines td.ln-bc { padding-left: calc(12px + var(--depth, 0) * 26px); white-space: nowrap; }
+.link-mark { color: var(--ink-2); margin-right: 6px; font-weight: 700; }
+.rental-lines tr.ln-nested td { border-top-color: transparent; }
+.rental-lines tr.ln-ghost td { color: var(--ink-2); background: color-mix(in srgb, var(--warning) 7%, transparent); }
+a.plain-link { color: inherit; }
+a.plain-link:hover { color: var(--accent); }
+
+/* ---------- product page ---------- */
+.product-hero { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; align-items: start; }
+.product-pic { aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden; background: var(--surface-2); display: grid; place-items: center; }
+.product-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.product-pic .ph { color: var(--line-strong); width: 45%; }
+.product-pic .ph svg { width: 100%; height: auto; }
+.product-pic-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.product-title { font-size: 1.4rem; font-weight: 700; margin: 0; }
+a.kpi:hover { text-decoration: none; border-color: var(--line-strong); }
+a.kpi[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.link-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.link-list li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }
+.link-list li .grow { flex: 1; min-width: 0; }
+@media (max-width: 600px) { .product-hero { grid-template-columns: 1fr; } .product-pic { max-width: 240px; } }
+
 /* ---------- hire site admin (pictures, wording, requests) ---------- */
 .hire-head { margin: 26px 0 4px; }
 .hire-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); margin-top: 12px; }
@@ -496,6 +524,10 @@ table.data tbody tr.group-row td { background: var(--surface-2); font-weight: 65
   .rental-lines td:nth-child(7) { grid-area: cs; }
   .rental-lines td:nth-child(8) { grid-area: ac; display: flex; gap: 8px; text-align: left; }
   .rental-lines td:nth-child(8):empty { display: none; }
+  .rental-lines tbody tr.group-row { display: block; }
+  .rental-lines tbody tr.group-row td { display: block; padding: 0; }
+  .rental-lines tr.ln-nested { margin-left: calc(var(--depth, 1) * 18px); border-left: 3px solid var(--line-strong); }
+  .rental-lines td.ln-bc { padding-left: 0; }
   .case-select { max-width: none; }
   .case-row { grid-template-columns: 1fr; gap: 6px; }
 

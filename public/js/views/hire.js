@@ -1,5 +1,5 @@
 import { api, html, mount, $, cap, debounce, fmtDate, fmtDateTime, plural, toast, notifyChanged } from '../util.js';
-import { errorBox } from '../ui.js';
+import { errorBox, squareDataUrl } from '../ui.js';
 
 /* Admin side of the public hire site (the one on port 90).
    Three jobs: set the look (logo), arrange and caption the catalogue, and look back over the bookings
@@ -8,24 +8,6 @@ import { errorBox } from '../ui.js';
    accept or decline either; this is just its history. */
 
 const PLACEHOLDER = html`<div class="ph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg></div>`;
-
-// Centre-crops whatever is chosen to a square and shrinks it, so item/category tiles always line up
-// and the database only ever holds a small picture.
-async function squareDataUrl(file, size = 640) {
-  if (!file.type.startsWith('image/')) throw new Error('That file is not a picture');
-  if (file.size > 25 * 1024 * 1024) throw new Error('That picture is too big to work with (25 MB max)');
-  const bmp = await createImageBitmap(file);
-  const side = Math.min(bmp.width, bmp.height);
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = Math.min(size, side);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
-  bmp.close?.();
-  let url = canvas.toDataURL('image/webp', 0.85);
-  if (!url.startsWith('data:image/webp')) url = canvas.toDataURL('image/jpeg', 0.85);
-  if (url.length > 2_600_000) throw new Error('That picture will not compress small enough — try a smaller one');
-  return url;
-}
 
 // A logo keeps its own proportions (scaled to fit) rather than being cropped square like a tile photo.
 async function fitDataUrl(file, maxW = 640, maxH = 200) {

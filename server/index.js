@@ -15,6 +15,7 @@ import { writeRentalPdf, pdfName, safeFilename } from './pdf.js';
 import { writeLabelPdf, code128B } from './label.js';
 import * as hire from './hire.js';
 import * as categories from './categories.js';
+import * as products from './products.js';
 import { createHireApp } from './hire-server.js';
 
 const app = express();
@@ -95,7 +96,7 @@ app.get('/api/items/export.csv', (req, res) => {
   const total = items.listItems({ ...req.query, limit: 1 }).total;
   let list = rows;
   for (let off = 1000; off < total; off += 1000) list = list.concat(items.listItems({ ...req.query, limit: 1000, offset: off }).items);
-  const cols = ['barcode', 'category', 'type', 'category2', 'type2', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'weight_kg', 'status', 'owner',
+  const cols = ['barcode', 'category', 'type', 'category2', 'type2', 'name', 'male_connector', 'female_connector', 'input_connector', 'outputs', 'length_m', 'weight_kg', 'power_w', 'status', 'owner',
     'rental_name', 'container_name', 'location', 'pat_required', 'pat_status', 'last_pat_date', 'next_pat_due'];
   // Guard against spreadsheet formula injection in text cells
   const cell = (v) => {
@@ -115,6 +116,8 @@ app.post('/api/items/owner', (req, res) => res.json(items.setOwner(req.body?.ite
 app.post('/api/items/cost', (req, res) => res.json(items.setCost(req.body?.itemIds, req.body?.cost)));
 // Set the weight (kg) of many items at once
 app.post('/api/items/weight', (req, res) => res.json(items.setWeight(req.body?.itemIds, req.body?.weight)));
+// Set the power consumption (W) of many items at once
+app.post('/api/items/power', (req, res) => res.json(items.setPower(req.body?.itemIds, req.body?.power)));
 app.post('/api/items', (req, res) => res.status(201).json(items.createItem(req.body || {})));
 // null (not a 404) when the barcode is unknown, so the UI can check without a console error
 app.get('/api/items/lookup/:barcode', (req, res) => res.json(items.getItemByBarcode(req.params.barcode) || null));
@@ -126,6 +129,9 @@ app.post('/api/items/:id/comments', (req, res) => res.status(201).json(items.add
 app.post('/api/items/:id/pat', (req, res) => res.status(201).json(items.recordPat(id(req), req.body || {})));
 app.delete('/api/items/:id/pat/:testId', (req, res) => res.json(items.deletePatTest(id(req), parseInt(req.params.testId, 10))));
 app.post('/api/items/:id/unstore', (req, res) => res.json(containers.unstoreItem(id(req))));
+// Linked kit: pairs (both needed) and children (accessories that go out with the item)
+app.post('/api/items/:id/links', (req, res) => res.status(201).json(items.addLink(id(req), req.body || {})));
+app.delete('/api/items/:id/links/:linkId', (req, res) => res.json(items.removeLink(id(req), parseInt(req.params.linkId, 10))));
 app.post('/api/items/:id/return', (req, res) => {
   const item = items.getItem(id(req));
   if (!item) throw new HttpError(404, 'Item not found');
@@ -133,6 +139,10 @@ app.post('/api/items/:id/return', (req, res) => {
   res.json(items.returnItem(item));
 });
 app.delete('/api/comments/:id', (req, res) => { items.deleteComment(id(req)); res.json({ ok: true }); });
+
+/* ---------- products (groups of identical items) ---------- */
+app.get('/api/products', (_req, res) => res.json(products.listProducts()));
+app.get('/api/products/:key', (req, res) => res.json(products.productDetail(req.params.key)));
 
 /* ---------- rentals ---------- */
 app.get('/api/rentals', (req, res) => res.json(rentals.listRentals(req.query)));

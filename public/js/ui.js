@@ -23,7 +23,10 @@ const outputRow = (o = { qty: 1, connector: '' }) => html`<div class="output-row
   <button class="btn ghost small" type="button" data-remove-output aria-label="Remove this output">✕</button>
 </div>`;
 
-export function itemFields(item = {}, { barcode = true, containers = [], isNew = false } = {}) {
+// What a product is called in the pick-list: its name, its type and its ends / length, so look-alikes can be told apart
+const productText = (p) => [p.label, `${cap(p.template.category)} ${p.template.type}`, p.details].filter(Boolean).join(' · ');
+
+export function itemFields(item = {}, { barcode = true, containers = [], isNew = false, productPicker = false } = {}) {
   const category = item.category || Object.keys(app.meta.catalog)[0];
   const type = item.type || (app.meta.catalog[category] || [])[0];
   const hasEnds = typeFields(category, type) === 'ends';
@@ -35,6 +38,10 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
   return html`
     ${connectorDatalist()}
     <div class="form-grid" data-item-fields data-auto-pat="${isNew ? '1' : ''}">
+      ${productPicker ? html`<div class="field wide product-pick"><label for="f-product">Product</label>
+        <input id="f-product" type="search" list="product-list" data-product-pick autocomplete="off" placeholder="Start typing a product you already have, e.g. 10m 16A…">
+        <datalist id="product-list"></datalist>
+        <span class="hint">Pick an existing product and every detail below is filled in from it (you can still change any of them). Leave it blank for something new.</span></div>` : ''}
       ${barcode ? html`<div class="field"><label for="f-barcode">Barcode *</label>
         <input id="f-barcode" name="barcode" type="text" inputmode="numeric" required autocomplete="off" value="${item.barcode || ''}" placeholder="e.g. 00001 (scan or type)">
         <span class="hint">You can scan straight into this page.</span></div>` : ''}
@@ -80,7 +87,56 @@ export function itemFields(item = {}, { barcode = true, containers = [], isNew =
       <div class="field"><label for="f-weight">Weight (kg)</label>
         <input id="f-weight" name="weight_kg" type="number" step="0.01" min="0" value="${item.weight_kg ?? ''}" placeholder="e.g. 2.5">
         <span class="hint">What one of these weighs. Added up into the NET weight printed on a case label.</span></div>
+      <div class="field"><label for="f-power">Power consumption (W)</label>
+        <input id="f-power" name="power_w" type="number" step="any" min="0" value="${item.power_w ?? ''}" placeholder="e.g. 150">
+        <span class="hint">What one of these draws when running, in watts. Added up into a rental's power total.</span></div>
     </div>`;
+}
+
+// Fills the item fields from a product's details (category, type, connectors… down to weight and power).
+// Owner, location and container belong to the one item being added, so they are left as they are.
+export function fillItemFields(box, t) {
+  const f = (n) => box.querySelector(`[name=${n}]`);
+  const fire = (el) => el.dispatchEvent(new Event('change', { bubbles: true }));
+  const cat = f('category');
+  if (app.meta.catalog[t.category]) { cat.value = t.category; fire(cat); }
+  const type = f('type');
+  if ((app.meta.catalog[t.category] || []).includes(t.type)) { type.value = t.type; fire(type); }
+  // second category: shown and set, or hidden
+  const cat2 = f('category2');
+  const showSecond = !!(t.category2 && app.meta.catalog[t.category2]);
+  box.querySelectorAll('[data-second]').forEach((el) => { el.hidden = !showSecond; });
+  const toggle = box.querySelector('[data-toggle-second]');
+  if (toggle) toggle.textContent = showSecond ? SECOND_REMOVE : SECOND_ADD;
+  if (showSecond) { cat2.value = t.category2; fire(cat2); f('type2').value = t.type2 || ''; }
+  for (const n of ['name', 'male_connector', 'female_connector', 'input_connector', 'length_m', 'cost', 'weight_kg', 'power_w']) {
+    if (f(n)) f(n).value = t[n] ?? '';
+  }
+  f('pat_required').checked = !!t.pat_required;
+  f('pat_interval_months').value = t.pat_interval_months || 12;
+  const outs = box.querySelector('[data-outputs]');
+  if (outs) {
+    const list = outputsOf(t);
+    outs.innerHTML = (list.length ? list : [undefined]).map((o) => outputRow(o).toString()).join('');
+  }
+}
+
+// Centre-crops whatever is chosen to a square and shrinks it, so item/category tiles always line up
+// and the database only ever holds a small picture.
+export async function squareDataUrl(file, size = 640) {
+  if (!file.type.startsWith('image/')) throw new Error('That file is not a picture');
+  if (file.size > 25 * 1024 * 1024) throw new Error('That picture is too big to work with (25 MB max)');
+  const bmp = await createImageBitmap(file);
+  const side = Math.min(bmp.width, bmp.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = Math.min(size, side);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
+  bmp.close?.();
+  let url = canvas.toDataURL('image/webp', 0.85);
+  if (!url.startsWith('data:image/webp')) url = canvas.toDataURL('image/jpeg', 0.85);
+  if (url.length > 2_600_000) throw new Error('That picture will not compress small enough — try a smaller one');
+  return url;
 }
 
 // Keeps the type list, connector fields and PAT default in sync with the chosen category / type
@@ -118,6 +174,26 @@ export function wireItemFields(root) {
     if (show) cat2.focus();
   });
   type.addEventListener('change', () => sync(false));
+
+  // Product: choosing one from the list fills in all of its details
+  const pick = $('[data-product-pick]', box);
+  if (pick) {
+    const byText = new Map();
+    api.get('/api/products').then((list) => {
+      for (const p of list) {
+        let text = productText(p);
+        for (let n = 2; byText.has(text); n++) text = `${productText(p)} (${n})`;
+        byText.set(text, p);
+      }
+      $('#product-list', box).innerHTML = [...byText.keys()].map((t) => `<option value="${esc(t)}"></option>`).join('');
+    }).catch(() => { pick.placeholder = 'Could not load the product list'; });
+    pick.addEventListener('input', () => {
+      const p = byText.get(pick.value);
+      if (!p) return;
+      fillItemFields(box, p.template);
+      pick.dispatchEvent(new CustomEvent('product-picked', { bubbles: true, detail: p }));
+    });
+  }
 
   // Distro outputs: add / remove lines (the last line is cleared rather than removed)
   box.addEventListener('click', (e) => {
@@ -163,6 +239,7 @@ export function readItemFields(root) {
   if (v('container_id')) out.container_id = v('container_id').value;
   if (v('cost')) out.cost = v('cost').value;
   if (v('weight_kg')) out.weight_kg = v('weight_kg').value;
+  if (v('power_w')) out.power_w = v('power_w').value;
   return out;
 }
 

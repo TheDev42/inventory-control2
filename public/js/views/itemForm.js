@@ -21,6 +21,15 @@ export default async function itemFormView({ el, args, query }) {
       item = { ...src, barcode: query.get('barcode') || '' };
     } catch (err) { mount(el, errorBox(err)); return; }
   }
+  // A new item of a product (from its product page): starts with that product's details
+  const productKey = !editId && !copyId && query.get('product');
+  let product = null;
+  if (productKey) {
+    try {
+      product = (await api.get(`/api/products/${encodeURIComponent(productKey)}`)).product;
+      item = { ...product.template, barcode: query.get('barcode') || '' };
+    } catch (err) { mount(el, errorBox(err)); return; }
+  }
   const containers = await api.get('/api/containers');
   let addedCount = 0;
 
@@ -28,8 +37,9 @@ export default async function itemFormView({ el, args, query }) {
     <div class="crumbs"><a href="#/inventory">Inventory</a> / ${editId ? html`<a href="#/items/${editId}">${item.barcode}</a> / Edit` : 'New item'}</div>
     <div class="page-head"><h1>${editId ? 'Edit item' : copiedFrom ? 'Duplicate item' : 'Add item'}</h1></div>
     ${copiedFrom ? html`<div class="notice" style="margin-bottom:16px">Same details as <a class="barcode" href="#/items/${copyId}">${copiedFrom}</a>. Scan or type the new item's barcode and save. <strong>Save &amp; add another</strong> keeps the details for the next one.</div>` : ''}
+    ${product ? html`<div class="notice" style="margin-bottom:16px">A new <a href="#/products/${product.key}">${product.label}</a>: its details are filled in already. Scan or type the new item's barcode and save. <strong>Save &amp; add another</strong> keeps the details for the next one.</div>` : ''}
     <form id="item-form" class="card" autocomplete="off">
-      ${itemFields(item, { containers, isNew: !editId && !copiedFrom })}
+      ${itemFields(item, { containers, isNew: !editId && !copiedFrom && !product, productPicker: !editId })}
       <div id="form-error"></div>
       <div class="form-actions">
         <button class="btn" type="submit" data-next="0">${editId ? 'Save changes' : 'Save'}</button>
@@ -42,6 +52,8 @@ export default async function itemFormView({ el, args, query }) {
   wireItemFields(form);
   const barcodeInput = $('[name=barcode]', form);
   if (!editId) barcodeInput.focus();
+  // a product picked from the list has filled everything else in, so the barcode is all that is left
+  form.addEventListener('product-picked', (e) => { toast(`Details filled in from ${e.detail.label}`, 'ok'); barcodeInput.focus(); });
 
   // True (with a warning) when that code already belongs to another item
   async function warnIfTaken(code) {

@@ -46,7 +46,7 @@ export default async function overviewView({ el, isActive }) {
     const categories = allCategories(data.groups);
 
     const row = (g) => html`<tr>
-      <td><div class="cell-main">${label(g)}</div><div class="cell-sub">${itemTitle(g)}${g.also.length ? ` · also in ${g.also.map((a) => `${cap(a.category)} ${a.type}`).join(', ')}` : ''}${g.length_m != null ? ` · ${g.length_m} m` : ''}${g.personal > 0 && g.personal < g.total ? ` · ${g.personal} of ${g.total} are mine` : g.personal === g.total && g.total > 0 && !owner ? ' · all mine' : ''}</div></td>
+      <td><div class="cell-main"><a class="plain-link" href="#/products/${g.key}" title="Open the product page">${label(g)}</a></div><div class="cell-sub">${itemTitle(g)}${g.also.length ? ` · also in ${g.also.map((a) => `${cap(a.category)} ${a.type}`).join(', ')}` : ''}${g.length_m != null ? ` · ${g.length_m} m` : ''}${g.personal > 0 && g.personal < g.total ? ` · ${g.personal} of ${g.total} are mine` : g.personal === g.total && g.total > 0 && !owner ? ' · all mine' : ''}</div></td>
       <td>${ends(g)}</td>
       <td class="num"><a class="big-num" href="${inventoryLink(g, undefined, owner)}" title="Show all ${g.total} in the inventory">${g.total}</a></td>
       <td class="num avail ${g.available === 0 ? 'none' : g.available === g.total ? 'all' : ''}">

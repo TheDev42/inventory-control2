@@ -4,7 +4,7 @@ import {
   itemSelect, getItem, getItemByBarcode, getContainerByBarcode, describeItem,
   returnItem, recordPat,
 } from './items.js';
-import { getRental, checkout, attachCase, packItems, caseRental } from './rentals.js';
+import { getRental, checkout, attachCase, packItems, caseRental, missingFor } from './rentals.js';
 
 /*
  * One endpoint handles every scan. The client sends the barcode plus the current mode, and gets back a
@@ -32,8 +32,11 @@ function scanOut(item, container, { rentalId }) {
     const r = checkout(item, rental, false);
     const fresh = getItem(item.id);
     if (r.state === 'added') {
-      return result(r.warning ? 'out_warn' : 'out',
-        `OUT → ${rental.name}: ${item.barcode} (${describeItem(item)})${r.warning ? ` ⚠ ${r.warning}` : ''}`,
+      // its pair / accessories that still have to be scanned onto the job
+      const needs = missingFor(item, rental.id);
+      const warn = [r.warning, needs.length && `needs ${needs.join(', ')} too`].filter(Boolean).join(' · ');
+      return result(warn ? 'out_warn' : 'out',
+        `OUT → ${rental.name}: ${item.barcode} (${describeItem(item)})${warn ? ` ⚠ ${warn}` : ''}`,
         { item: fresh, rentalId: rental.id });
     }
     if (r.state === 'duplicate') return result('warn', `${item.barcode} is ${r.text}`, { item: fresh });

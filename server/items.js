@@ -1,7 +1,7 @@
 import {
   all, get, run, tx, today, addDays, addMonths, nowIso, logEvent, HttpError,
 } from './db.js';
-import { STATUS_LABEL, BARCODE_DIGITS, cap, normalizeBarcode, parseOutputs, formatOutputs, parseOwner } from './catalog.js';
+import { STATUS_LABEL, BARCODE_DIGITS, cap, normalizeBarcode, parseOutputs, formatOutputs, parseOwner, kindKey } from './catalog.js';
 import { getCatalog, fieldsFor } from './categories.js';
 
 /* ---------- SQL fragments ---------- */
@@ -164,6 +164,7 @@ export function listItems(query = {}) {
     ).n;
     const items = all(`${itemSelect()} ${whereSql} ${orderSql} LIMIT ? OFFSET ?`, ...allArgs, limit, offset);
     markBarcodeGaps(items);
+    for (const it of items) it.product_key = kindKey(it); // the product (kind) it belongs to, for its product page
     return { items, total, whereSql, args: allArgs };
   };
 
@@ -267,6 +268,8 @@ export function cleanItem(d) {
   if (cost !== null && (!Number.isFinite(Number(cost)) || Number(cost) < 0)) throw new HttpError(400, `Invalid cost "${d.cost}"`);
   const weight = str(d.weight_kg);
   if (weight !== null && (!Number.isFinite(Number(weight)) || Number(weight) < 0)) throw new HttpError(400, `Invalid weight "${d.weight_kg}"`);
+  const power = str(d.power_w);
+  if (power !== null && (!Number.isFinite(Number(power)) || Number(power) < 0)) throw new HttpError(400, `Invalid power consumption "${d.power_w}"`);
   let patRequired;
   if (d.pat_required === undefined || d.pat_required === null || d.pat_required === '') {
     patRequired = !(category === 'SOUND' && type === 'cable') ? 1 : 0; // signal cables don't need PAT
@@ -293,6 +296,7 @@ export function cleanItem(d) {
     location: str(d.location),
     cost: cost === null ? null : Number(cost),
     weight_kg: weight === null ? null : Number(weight),
+    power_w: power === null ? null : Number(power),
   };
 }
 
@@ -302,10 +306,10 @@ function insertItem(c) {
   const ts = nowIso();
   const res = run(
     `INSERT INTO items (barcode, category, type, category2, type2, name, male_connector, female_connector, input_connector, outputs, length_m,
-       pat_required, pat_interval_months, container_id, owner, location, cost, weight_kg, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       pat_required, pat_interval_months, container_id, owner, location, cost, weight_kg, power_w, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     c.barcode, c.category, c.type, c.category2, c.type2, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, c.weight_kg, ts, ts
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, c.weight_kg, c.power_w, ts, ts
   );
   return getItem(Number(res.lastInsertRowid));
 }
@@ -359,9 +363,9 @@ export function updateItem(id, data) {
   if (existing.status === 'sold' && c.container_id) throw new HttpError(409, 'Sold items cannot be stored in a container');
   run(
     `UPDATE items SET barcode=?, category=?, type=?, category2=?, type2=?, name=?, male_connector=?, female_connector=?, input_connector=?, outputs=?, length_m=?,
-       pat_required=?, pat_interval_months=?, container_id=?, owner=?, location=?, cost=?, weight_kg=?, updated_at=? WHERE id=?`,
+       pat_required=?, pat_interval_months=?, container_id=?, owner=?, location=?, cost=?, weight_kg=?, power_w=?, updated_at=? WHERE id=?`,
     c.barcode, c.category, c.type, c.category2, c.type2, c.name, c.male_connector, c.female_connector, c.input_connector, c.outputs, c.length_m,
-    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, c.weight_kg, nowIso(), id
+    c.pat_required, c.pat_interval_months, c.container_id, c.owner, c.location, c.cost, c.weight_kg, c.power_w, nowIso(), id
   );
   const item = getItem(id);
   logEvent({ action: 'edited', item, detail: 'Details edited' });
@@ -429,6 +433,28 @@ export function setWeight(itemIds, weightValue) {
     if (updated) logEvent({ action: 'weight', detail: `Weight of ${updated} item(s) set to ${weight} kg` });
   });
   return { updated, matched: ids.length, weight };
+}
+
+// Sets the power consumption (W) of many items at once (e.g. every LED par). Unknown ids are ignored.
+export function setPower(itemIds, powerValue) {
+  const raw = str(powerValue);
+  if (raw === null || !Number.isFinite(Number(raw)) || Number(raw) < 0) throw new HttpError(400, `Invalid power consumption "${powerValue}"`);
+  if (!Array.isArray(itemIds) || !itemIds.length) throw new HttpError(400, 'No items selected');
+  if (itemIds.length > 5000) throw new HttpError(400, 'Too many items at once (max 5000)');
+  const ids = [...new Set(itemIds.map(Number).filter(Number.isInteger))];
+  const power = Number(raw);
+  let updated = 0;
+  tx(() => {
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      updated += run(
+        `UPDATE items SET power_w = ?, updated_at = ? WHERE (power_w IS NULL OR power_w != ?) AND id IN (${chunk.map(() => '?').join(',')})`,
+        power, nowIso(), power, ...chunk
+      ).changes;
+    }
+    if (updated) logEvent({ action: 'power', detail: `Power consumption of ${updated} item(s) set to ${power} W` });
+  });
+  return { updated, matched: ids.length, power };
 }
 
 export function deleteItem(id) {
@@ -561,11 +587,67 @@ export function deletePatTest(itemId, testId) {
   return getItem(itemId);
 }
 
+/* ---------- linked kit: children (accessories) and pairs ---------- */
+
+// Every link touching this item, from its side: role 'pair' (they only work together), 'child' (this item needs that
+// one with it) or 'parent' (this item is an accessory of that one). Each row is the OTHER item, plus link_id.
+export function itemLinks(id) {
+  return all(
+    `SELECT l.id AS link_id, l.kind, l.parent_id, i.id, i.barcode, i.category, i.type, i.category2, i.type2, i.name,
+       i.status, i.rental_id, r.name AS rental_name
+     FROM item_links l
+     JOIN items i ON i.id = CASE WHEN l.parent_id = ? THEN l.child_id ELSE l.parent_id END
+     LEFT JOIN rentals r ON r.id = i.rental_id
+     WHERE l.parent_id = ? OR l.child_id = ?
+     ORDER BY i.barcode COLLATE NOCASE`,
+    id, id, id
+  ).map(({ parent_id: parentId, ...r }) => ({ ...r, role: r.kind === 'pair' ? 'pair' : parentId === id ? 'child' : 'parent' }));
+}
+
+// role: 'pair' (the two go together), 'child' (the scanned item is an accessory of this one), or 'parent' (this item is an accessory of the scanned one)
+export function addLink(itemId, { barcode, role } = {}) {
+  const item = getItem(itemId);
+  if (!item) throw new HttpError(404, 'Item not found');
+  if (!['pair', 'child', 'parent'].includes(role)) throw new HttpError(400, 'Choose pair, child or parent');
+  const code = str(normalizeBarcode(barcode));
+  if (!code) throw new HttpError(400, 'Scan or type the other item\'s barcode');
+  const other = getItemByBarcode(code);
+  if (!other) throw new HttpError(404, `No item has the barcode ${code}`);
+  if (other.id === item.id) throw new HttpError(400, 'An item cannot be linked to itself');
+  if (get('SELECT 1 AS x FROM item_links WHERE (parent_id = ? AND child_id = ?) OR (parent_id = ? AND child_id = ?)', item.id, other.id, other.id, item.id)) {
+    throw new HttpError(409, `${item.barcode} and ${other.barcode} are already linked`);
+  }
+  const [parent, child] = role === 'parent' ? [other, item] : [item, other];
+  tx(() => {
+    run('INSERT INTO item_links (parent_id, child_id, kind, created_at) VALUES (?, ?, ?, ?)', parent.id, child.id, role === 'pair' ? 'pair' : 'child', nowIso());
+    const detail = role === 'pair' ? `Paired ${item.barcode} with ${other.barcode}` : `${child.barcode} set as an accessory (child) of ${parent.barcode}`;
+    logEvent({ action: 'linked', item: parent, detail });
+    logEvent({ action: 'linked', item: child, detail });
+  });
+  return itemLinks(itemId);
+}
+
+export function removeLink(itemId, linkId) {
+  const link = get('SELECT * FROM item_links WHERE id = ? AND (parent_id = ? OR child_id = ?)', linkId, itemId, itemId);
+  if (!link) throw new HttpError(404, 'Link not found');
+  const parent = getItem(link.parent_id);
+  const child = getItem(link.child_id);
+  tx(() => {
+    run('DELETE FROM item_links WHERE id = ?', linkId);
+    const detail = `Unlinked ${parent.barcode} and ${child.barcode}`;
+    logEvent({ action: 'unlinked', item: parent, detail });
+    logEvent({ action: 'unlinked', item: child, detail });
+  });
+  return itemLinks(itemId);
+}
+
 export function itemDetail(id) {
   const item = getItem(id);
   if (!item) throw new HttpError(404, 'Item not found');
+  item.product_key = kindKey(item);
   return {
     item,
+    links: itemLinks(id),
     comments: all('SELECT * FROM comments WHERE item_id = ? ORDER BY id DESC', id),
     pat_tests: all('SELECT * FROM pat_tests WHERE item_id = ? ORDER BY tested_at DESC, id DESC', id),
     rentals: all(

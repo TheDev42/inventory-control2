@@ -1,5 +1,5 @@
 import {
-  api, html, mount, $, $$, fmtDate, fmtDateTime, toast, notifyChanged, plural, itemTitle, ends, patBadge, statusBadge,
+  api, html, mount, $, $$, cap, fmtDate, fmtDateTime, fmtWeight, fmtPower, toast, notifyChanged, plural, itemTitle, ends, patBadge, statusBadge, statusLabel,
 } from '../util.js';
 import { app } from '../state.js';
 import { state as scanState, setMode } from '../scanner.js';
@@ -15,6 +15,50 @@ const lineState = (it) => {
 };
 
 const tempBadge = html`<span class="badge st-temp"><span class="ico">◷</span>Temporary</span>`;
+
+const sumOf = (list, f) => list.reduce((s, it) => s + (it[f] || 0), 0);
+
+// The lines in the order they are listed: a section per category, and in it each item with its pair partner
+// straight after it and its accessories (children) indented underneath. Linked kit that has not been scanned onto
+// the job yet is slotted in where it belongs as a "ghost" line. An accessory follows its parent into the parent's section.
+function arrange(lines, links, missing) {
+  const onSheet = new Map(lines.map((it) => [it.id, it]));
+  const pairsOf = new Map();
+  const kidsOf = new Map();
+  const ghostsOf = new Map();
+  const hasParent = new Set();
+  const add = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+  for (const l of links) {
+    if (!onSheet.has(l.parent_id) || !onSheet.has(l.child_id)) continue;
+    if (l.kind === 'pair') { add(pairsOf, l.parent_id, l.child_id); add(pairsOf, l.child_id, l.parent_id); } else { add(kidsOf, l.parent_id, l.child_id); hasParent.add(l.child_id); }
+  }
+  for (const m of missing) { const by = m.for.find((f) => onSheet.has(f.id)); if (by) add(ghostsOf, by.id, m); }
+
+  const placed = new Set();
+  const emit = (start, depth, rows) => {
+    const unit = [start]; // the item and everything paired with it
+    placed.add(start.id);
+    for (let i = 0; i < unit.length; i++) {
+      for (const pid of pairsOf.get(unit[i].id) || []) if (!placed.has(pid)) { placed.add(pid); unit.push(onSheet.get(pid)); }
+    }
+    unit.forEach((it, i) => rows.push({ it, depth, rel: i ? 'pair' : depth ? 'child' : '' }));
+    for (const it of unit) for (const g of ghostsOf.get(it.id) || []) if (g.kind === 'pair') rows.push({ ghost: g, depth, rel: 'pair' });
+    for (const it of unit) {
+      for (const cid of kidsOf.get(it.id) || []) if (!placed.has(cid)) emit(onSheet.get(cid), depth + 1, rows);
+      for (const g of ghostsOf.get(it.id) || []) if (g.kind !== 'pair') rows.push({ ghost: g, depth: depth + 1, rel: 'child' });
+    }
+  };
+  const sections = new Map();
+  const section = (cat) => { if (!sections.has(cat)) sections.set(cat, []); return sections.get(cat); };
+  for (const it of lines) if (!placed.has(it.id) && !hasParent.has(it.id)) emit(it, 0, section(it.category));
+  for (const it of lines) if (!placed.has(it.id)) emit(it, 0, section(it.category)); // accessories linked in a loop: nothing to hang them under
+  const order = Object.keys(app.meta.catalog);
+  const rank = (c) => { const i = order.indexOf(c); return i < 0 ? order.length : i; };
+  return [...sections.entries()].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b)).map(([category, rows]) => ({ category, rows }));
+}
+
+// Where a piece of missing linked kit is right now
+const whereIs = (m) => (m.status === 'on_rental' ? `out on “${m.rental_name}”` : m.status === 'in_stock' ? 'in stock' : statusLabel(m.status).toLowerCase());
 
 export default async function rentalView({ el, args, isActive }) {
   const id = Number(args[0]);
@@ -55,7 +99,7 @@ export default async function rentalView({ el, args, isActive }) {
     let d;
     try { [d, containers] = await Promise.all([api.get(`/api/rentals/${id}`), api.get('/api/containers')]); } catch (err) { if (isActive()) mount(el, errorBox(err)); return; }
     if (!isActive()) return;
-    const { rental: r, items, cases, requirements: reqs } = d;
+    const { rental: r, items, cases, requirements: reqs, links = [], missing = [] } = d;
     const active = r.status === 'active';
     const ended = active && !!r.ended_at; // still active, but kit can only come back
     const open = active && !ended; // kit can still go out on it
@@ -79,6 +123,39 @@ export default async function rentalView({ el, args, isActive }) {
     const overdue = active && r.end_date && r.end_date < app.meta.today;
     const scanningHere = scanState.rentalId === id;
     const spare = containers.filter((c) => !cases.some((x) => x.container_id === c.id)); // cases not yet on this rental
+    // Job totals: everything on the sheet that hasn't come back yet (all of it, while packing)
+    const onJob = items.filter((it) => lineState(it) === 'out');
+    const weight = sumOf(onJob, 'weight_kg');
+    const power = sumOf(onJob, 'power_w');
+    const unweighed = onJob.filter((it) => it.weight_kg == null).length;
+    const sections = arrange(shown, links, filter === 'all' || filter === 'out' ? missing : []);
+
+    const lineRow = ({ it, depth, rel }) => {
+      const st = lineState(it);
+      return html`<tr class="${st === 'lost' ? 'is-lost' : ''} ${depth ? 'ln-nested' : ''}">
+            <td class="ck">${open && st === 'out' ? html`<input type="checkbox" class="ln-check" data-item="${it.id}" ${selected.has(it.id) ? 'checked' : ''} aria-label="Tick ${it.barcode}">` : ''}</td>
+            <td class="ln-bc" style="--depth:${depth}">${rel ? html`<span class="link-mark" title="${rel === 'pair' ? 'Paired with the item above: both are needed' : 'Accessory of the item above'}">${rel === 'pair' ? '⇄' : '↳'}</span>` : ''}<a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
+            <td><div class="cell-main"><a class="plain-link" href="#/products/${it.product_key}">${itemTitle(it)}</a></div>${it.name ? html`<div class="cell-sub">${it.name}</div>` : ''}</td>
+            <td>${ends(it)}</td>
+            <td>${patBadge(it.pat_status)}</td>
+            <td>${st === 'returned' ? html`<span class="badge st-stock"><span class="ico">✓</span>Returned</span><div class="cell-sub">${fmtDateTime(it.returned_at)}</div>`
+              : html`${st === 'lost' ? statusBadge('lost') : statusBadge('on_rental')}<div class="cell-sub">since ${fmtDateTime(it.added_at)}</div>`}</td>
+            <td>${open && st === 'out'
+              ? html`<select class="case-select" data-case-for="${it.id}" aria-label="Case for ${it.barcode}"><option value="">— none —</option>${caseOptions(containers, it.case_id)}<option value="__new">+ New temporary box…</option></select>`
+              : it.case_name ? html`${it.case_name}${it.case_kind === 'temporary' ? html` <span class="muted small-text">(temp)</span>` : ''}` : ''}</td>
+            <td class="nowrap right">${st === 'out' ? html`<button class="btn secondary small" data-return="${it.id}">Return</button> <button class="btn ghost small" data-remove="${it.id}" title="Take it off this rental (undo a mistaken scan)">Remove</button>`
+              : st === 'lost' && it.outcome === null ? html`<button class="btn secondary small" data-return="${it.id}">Found</button>` : ''}</td>
+          </tr>`;
+    };
+    // Linked kit that should be on the job but isn't: a greyed line where it belongs, with a quick way to add it
+    const ghostRow = ({ ghost: m, depth, rel }) => html`<tr class="ln-ghost ${depth ? 'ln-nested' : ''}">
+            <td class="ck"></td>
+            <td class="ln-bc" style="--depth:${depth}"><span class="link-mark" aria-hidden="true">${rel === 'pair' ? '⇄' : '↳'}</span><a class="barcode" href="#/items/${m.id}">${m.barcode}</a></td>
+            <td><div class="cell-main">${itemTitle(m)}</div>${m.name ? html`<div class="cell-sub">${m.name}</div>` : ''}</td>
+            <td><span class="badge pat-soon"><span class="ico">▲</span>Not scanned onto this job</span><div class="cell-sub">${rel === 'pair' ? 'Its pair' : 'Accessory'} · ${whereIs(m)}</div></td>
+            <td></td><td></td><td></td>
+            <td class="nowrap right">${m.status === 'in_stock' ? html`<button class="btn secondary small" data-add-linked="${m.id}">Add to job</button>` : ''}</td>
+          </tr>`;
 
     mount(el, html`
       <div class="crumbs"><a href="#/rentals">Rentals</a> / ${r.job_number ? html`${r.job_number} · ` : ''}${r.name}</div>
@@ -87,6 +164,10 @@ export default async function rentalView({ el, args, isActive }) {
           <h1>${r.job_number ? html`<span class="mono">${r.job_number}</span> · ` : ''}${r.name} ${active ? '' : html`<span class="badge pat-na" style="vertical-align:middle"><span class="ico">✓</span>Completed</span>`}${ended ? html`<span class="badge st-dis" style="vertical-align:middle"><span class="ico">■</span>Ended</span>` : ''}</h1>
           <div class="sub">${r.customer ? html`${r.customer} · ` : ''}${r.start_date ? fmtDate(r.start_date) : 'no start date'} → ${r.end_date ? fmtDate(r.end_date) : 'no end date'}
             ${overdue ? html` <span class="badge pat-bad"><span class="ico">✕</span>Past end date</span>` : ''}</div>
+          <div class="job-totals" title="Everything on this job that has not come back yet">
+            <span class="job-total"><span class="lbl">Total weight</span><strong>${fmtWeight(weight)}</strong>${unweighed ? html`<span class="muted small-text">${unweighed} with no weight recorded</span>` : ''}</span>
+            <span class="job-total"><span class="lbl">Power consumption</span><strong>${fmtPower(power)}</strong>${power ? html`<span class="muted small-text">≈ ${(power / 230).toFixed(1)} A at 230 V</span>` : ''}</span>
+          </div>
           ${r.notes ? html`<div class="muted" style="margin-top:6px;white-space:pre-wrap">${r.notes}</div>` : ''}
         </div>
         <div class="actions">
@@ -100,6 +181,13 @@ export default async function rentalView({ el, args, isActive }) {
           <button class="btn danger" data-act="delete">Delete</button>
         </div>
       </div>
+
+      ${missing.length ? html`<div class="notice warn linked-warn" role="alert">
+        <strong>⚠ Linked kit missing from this job: ${plural(missing.length, 'item')}.</strong> These go with something already on it and have not been scanned out yet.
+        <ul>${missing.map((m) => html`<li><a class="barcode" href="#/items/${m.id}">${m.barcode}</a> ${m.name || itemTitle(m)}
+          <span class="muted">— ${m.kind === 'pair' ? 'pair of' : 'accessory of'} ${m.for.map((f, i) => html`${i ? ', ' : ''}<a class="barcode" href="#/items/${f.id}">${f.barcode}</a>`)} · ${whereIs(m)}</span>
+          ${m.status === 'in_stock' ? html` <button class="btn secondary small" type="button" data-add-linked="${m.id}">Add to job</button>` : ''}</li>`)}</ul>
+      </div>` : ''}
 
       ${editing ? html`<form id="edit-form" class="card" style="margin-bottom:16px">
         <div class="form-grid">
@@ -193,22 +281,13 @@ export default async function rentalView({ el, args, isActive }) {
 
       ${shown.length ? html`<div class="table-wrap cards rental-lines"><table class="data">
         <thead><tr><th class="ck">${open && counts.out ? html`<input type="checkbox" id="ln-all" aria-label="Tick every line that is still out">` : ''}</th><th>Barcode</th><th>Item</th><th>Ends</th><th>PAT</th><th>Status</th><th>Case</th><th></th></tr></thead>
-        <tbody>${shown.map((it) => {
-          const st = lineState(it);
-          return html`<tr class="${st === 'lost' ? 'is-lost' : ''}">
-            <td class="ck">${open && st === 'out' ? html`<input type="checkbox" class="ln-check" data-item="${it.id}" ${selected.has(it.id) ? 'checked' : ''} aria-label="Tick ${it.barcode}">` : ''}</td>
-            <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
-            <td><div class="cell-main">${itemTitle(it)}</div>${it.name ? html`<div class="cell-sub">${it.name}</div>` : ''}</td>
-            <td>${ends(it)}</td>
-            <td>${patBadge(it.pat_status)}</td>
-            <td>${st === 'returned' ? html`<span class="badge st-stock"><span class="ico">✓</span>Returned</span><div class="cell-sub">${fmtDateTime(it.returned_at)}</div>`
-              : html`${st === 'lost' ? statusBadge('lost') : statusBadge('on_rental')}<div class="cell-sub">since ${fmtDateTime(it.added_at)}</div>`}</td>
-            <td>${open && st === 'out'
-              ? html`<select class="case-select" data-case-for="${it.id}" aria-label="Case for ${it.barcode}"><option value="">— none —</option>${caseOptions(containers, it.case_id)}<option value="__new">+ New temporary box…</option></select>`
-              : it.case_name ? html`${it.case_name}${it.case_kind === 'temporary' ? html` <span class="muted small-text">(temp)</span>` : ''}` : ''}</td>
-            <td class="nowrap right">${st === 'out' ? html`<button class="btn secondary small" data-return="${it.id}">Return</button> <button class="btn ghost small" data-remove="${it.id}" title="Take it off this rental (undo a mistaken scan)">Remove</button>`
-              : st === 'lost' && it.outcome === null ? html`<button class="btn secondary small" data-return="${it.id}">Found</button>` : ''}</td>
-          </tr>`; })}</tbody></table></div>`
+        <tbody>${sections.map(({ category, rows }) => {
+          const real = rows.filter((row) => row.it).map((row) => row.it);
+          const w = sumOf(real, 'weight_kg');
+          const p = sumOf(real, 'power_w');
+          return html`<tr class="group-row"><td colspan="8">${cap(category)} <span class="muted">· ${plural(real.length, 'item')}${w ? ` · ${fmtWeight(w)}` : ''}${p ? ` · ${fmtPower(p)}` : ''}</span></td></tr>
+            ${rows.map((row) => (row.ghost ? ghostRow(row) : lineRow(row)))}`;
+        })}</tbody></table></div>`
         : html`<div class="card"><div class="empty">${items.length ? 'Nothing in this view.' : active ? 'No items yet — scan a barcode, or use “Add items” to pick them from the list.' : 'No items were added to this rental.'}</div></div>`}`);
 
     renderBulk();
@@ -258,6 +337,16 @@ export default async function rentalView({ el, args, isActive }) {
     }
     const ret = t.closest('[data-return]');
     if (ret) { run(() => api.post(`/api/items/${ret.dataset.return}/return`), 'Returned to stock'); return; }
+    const addLinked = t.closest('[data-add-linked]');
+    if (addLinked) {
+      try {
+        const res = await api.post(`/api/rentals/${id}/items`, { itemIds: [Number(addLinked.dataset.addLinked)] });
+        if (res.added) toast(`Added to the job${res.warned ? ' (PAT due or never tested)' : ''}`, res.warned ? 'info' : 'ok');
+        else toast(`Not added: ${res.skipped[0]?.reason || 'it cannot go out'}`, 'error', 5000);
+        notifyChanged();
+      } catch (err) { toast(err.message, 'error', 5000); }
+      return;
+    }
     const rem = t.closest('[data-remove]');
     if (rem) { run(() => api.del(`/api/rentals/${id}/items/${rem.dataset.remove}`), 'Removed from rental'); return; }
     const reqRemove = t.closest('[data-req-remove]');

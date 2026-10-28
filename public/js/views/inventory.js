@@ -87,6 +87,9 @@ export default async function inventoryView({ el, query, isActive }) {
       <label class="ctx-field">Set weight to
         <input id="bulk-weight" type="number" step="0.01" min="0" inputmode="decimal" placeholder="kg e.g. 2.5" aria-label="New weight in kg" style="width:100px"></label>
       <button class="btn small" type="button" data-bulk="apply-weight">Apply</button>
+      <label class="ctx-field">Set power to
+        <input id="bulk-power" type="number" step="any" min="0" inputmode="decimal" placeholder="W e.g. 150" aria-label="New power consumption in watts" style="width:100px"></label>
+      <button class="btn small" type="button" data-bulk="apply-power">Apply</button>
       ${lastTotal > n ? html`<button class="btn ghost small" type="button" data-bulk="all">Select all ${Math.min(lastTotal, MAX_BULK)} matching</button>` : ''}
       <button class="btn ghost small" type="button" data-bulk="clear">Clear</button>
     </div>` : html``);
@@ -133,10 +136,10 @@ export default async function inventoryView({ el, query, isActive }) {
       <div class="table-wrap cards"><table class="data inventory-table">
         <thead><tr><th class="ck"><input type="checkbox" id="inv-all" aria-label="Tick every item on this page"></th>${COLUMNS.map(([key, label]) => html`<th class="sortable" data-sort="${key}" aria-sort="${s.sort === key ? (s.dir === 'asc' ? 'ascending' : 'descending') : 'none'}">${label}<span class="sort-ind">${s.sort === key ? (s.dir === 'asc' ? '▲' : '▼') : ''}</span></th>`)}</tr></thead>
         <tbody>${data.items.length ? data.items.map((it, i) => html`
-          <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : it.status === 'sold' ? 'is-sold' : ''}" data-id="${it.id}">
+          <tr class="clickable ${it.status === 'on_rental' ? 'is-out' : it.status === 'lost' ? 'is-lost' : it.status === 'sold' ? 'is-sold' : ''}" data-id="${it.id}" data-product="${it.product_key}" title="Open the product page (click the barcode for this one item)">
             <td class="ck">${gapMark(data.items, i)}<input type="checkbox" class="inv-check" data-id="${it.id}" ${selected.has(it.id) ? 'checked' : ''} aria-label="Tick ${it.barcode}"></td>
-            <td><a class="barcode" href="#/items/${it.id}">${it.barcode}</a></td>
-            <td><div class="cell-main">${it.name || itemTitle(it)} ${ownerBadge(it)}</div>${it.name ? html`<div class="cell-sub">${itemTitle(it)}</div>` : ''}</td>
+            <td><a class="barcode" href="#/items/${it.id}" title="Open this one item">${it.barcode}</a></td>
+            <td><div class="cell-main"><a class="plain-link" href="#/products/${it.product_key}">${it.name || itemTitle(it)}</a> ${ownerBadge(it)}</div>${it.name ? html`<div class="cell-sub">${itemTitle(it)}</div>` : ''}</td>
             <td>${ends(it)}</td>
             <td class="nowrap">${it.length_m != null ? `${it.length_m} m` : ''}</td>
             <td>${statusBadge(it.status)}
@@ -225,6 +228,17 @@ export default async function inventoryView({ el, query, isActive }) {
         selected.clear();
         load();
       } catch (err) { toast(err.message, 'error', 5000); }
+    } else if (act === 'apply-power') {
+      const power = $('#bulk-power', el).value;
+      if (power === '') { toast('Enter a power consumption first', 'error'); return; }
+      try {
+        const res = await api.post('/api/items/power', { itemIds: [...selected], power });
+        toast(res.updated
+          ? `Power of ${plural(res.updated, 'item')} set to ${res.power} W`
+          : `Nothing to change: already ${res.power} W`, res.updated ? 'ok' : 'info');
+        selected.clear();
+        load();
+      } catch (err) { toast(err.message, 'error', 5000); }
     }
   });
 
@@ -240,7 +254,7 @@ export default async function inventoryView({ el, query, isActive }) {
     const pg = e.target.closest('[data-page]');
     if (pg) { s.page += pg.dataset.page === 'next' ? 1 : -1; reload(false); window.scrollTo(0, 0); return; }
     const row = e.target.closest('tr[data-id]');
-    if (row && !e.target.closest('a') && !e.target.closest('.ck')) location.hash = `#/items/${row.dataset.id}`;
+    if (row && !e.target.closest('a') && !e.target.closest('.ck')) location.hash = `#/products/${row.dataset.product}`;
   });
   $('#inv-results', el).addEventListener('change', (e) => {
     const t = e.target;

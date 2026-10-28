@@ -8,6 +8,7 @@ import overviewView from './views/overview.js';
 import inventoryView from './views/inventory.js';
 import itemView from './views/item.js';
 import itemFormView from './views/itemForm.js';
+import productView from './views/product.js';
 import rentalsView from './views/rentals.js';
 import rentalView from './views/rental.js';
 import containersView from './views/containers.js';
@@ -32,6 +33,7 @@ const ROUTES = [
   [/^\/items\/new$/, itemFormView, '/inventory'],
   [/^\/items\/(\d+)\/edit$/, itemFormView, '/inventory'],
   [/^\/items\/(\d+)$/, itemView, '/inventory'],
+  [/^\/products\/([a-f0-9]{16})$/, productView, '/inventory'],
   [/^\/rentals$/, rentalsView, '/rentals'],
   [/^\/rentals\/(\d+)$/, rentalView, '/rentals'],
   [/^\/containers$/, containersView, '/containers'],

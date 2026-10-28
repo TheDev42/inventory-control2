@@ -53,7 +53,7 @@ export function rentalItems(rentalId) {
      WHERE ri.rental_id = ?
      ORDER BY i.category, i.type, i.barcode COLLATE NOCASE, ri.added_at`,
     rentalId
-  );
+  ).map((it) => ({ ...it, product_key: kindKey(it) }));
 }
 
 // The cases on this rental, in the order they were added (that order gives the "1 of 3" box numbers on labels)
@@ -67,10 +67,60 @@ export function rentalCases(rentalId) {
   );
 }
 
+// Linked kit on a rental. `links`: the links between lines on it, so an accessory can be listed under its parent.
+// `missing`: while kit can still go out on it, every item that a line still out needs with it (its pair, its
+// accessories) but that is not out on this rental too — each with the lines that need it.
+export function rentalLinks(rental, items) {
+  if (!items.length) return { links: [], missing: [] };
+  const onSheet = new Set(items.map((it) => it.id));
+  const out = new Map(items.filter((it) => it.outcome === null && it.status === 'on_rental').map((it) => [it.id, it]));
+  const rows = all(
+    `SELECT id, parent_id, child_id, kind FROM item_links
+     WHERE parent_id IN (SELECT item_id FROM rental_items WHERE rental_id = ?) OR child_id IN (SELECT item_id FROM rental_items WHERE rental_id = ?)`,
+    rental.id, rental.id
+  );
+  const links = rows.filter((l) => onSheet.has(l.parent_id) && onSheet.has(l.child_id));
+  const missing = new Map();
+  if (rental.status === 'active' && !rental.ended_at) {
+    for (const l of rows) {
+      const needs = l.kind === 'pair' ? [[l.parent_id, l.child_id], [l.child_id, l.parent_id]] : [[l.parent_id, l.child_id]];
+      for (const [have, want] of needs) {
+        if (!out.has(have) || out.has(want)) continue;
+        let m = missing.get(want);
+        if (!m) {
+          const it = getItem(want);
+          if (!it || it.status === 'sold') continue; // sold kit can't go out, so there is nothing to ask for
+          m = {
+            id: it.id, barcode: it.barcode, category: it.category, type: it.type, category2: it.category2, type2: it.type2,
+            name: it.name, status: it.status, rental_id: it.rental_id, rental_name: it.rental_name, kind: l.kind, for: [],
+          };
+          missing.set(want, m);
+        }
+        const by = out.get(have);
+        if (!m.for.some((f) => f.id === by.id)) m.for.push({ id: by.id, barcode: by.barcode, name: by.name, category: by.category, type: by.type });
+      }
+    }
+  }
+  return { links, missing: [...missing.values()] };
+}
+
 export function rentalDetail(id) {
   const rental = getRental(id);
   if (!rental) throw new HttpError(404, 'Rental not found');
-  return { rental, items: rentalItems(id), cases: rentalCases(id), requirements: requirements(id) };
+  const items = rentalItems(id);
+  return { rental, items, cases: rentalCases(id), requirements: requirements(id), ...rentalLinks(rental, items) };
+}
+
+// For a scan message: the linked kit this item needs with it that is not out on the rental yet
+export function missingFor(item, rentalId) {
+  return all(
+    `SELECT i.barcode FROM item_links l
+     JOIN items i ON i.id = CASE WHEN l.parent_id = ? THEN l.child_id ELSE l.parent_id END
+     WHERE (l.parent_id = ? OR (l.kind = 'pair' AND l.child_id = ?)) AND i.status != 'sold'
+       AND NOT (i.status = 'on_rental' AND i.rental_id = ?)
+     ORDER BY i.barcode COLLATE NOCASE`,
+    item.id, item.id, item.id, rentalId
+  ).map((r) => r.barcode);
 }
 
 export function createRental(data) {

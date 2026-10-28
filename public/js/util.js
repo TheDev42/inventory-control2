@@ -80,6 +80,9 @@ export function timeAgo(iso) {
   return fmtDate(iso);
 }
 export const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+const trim = (n, dp) => String(Number(n.toFixed(dp)));
+export const fmtWeight = (kg) => (kg >= 1000 ? `${trim(kg / 1000, 2)} t` : `${trim(kg, 1)} kg`);
+export const fmtPower = (w) => (w >= 1000 ? `${trim(w / 1000, 2)} kW` : `${trim(w, 0)} W`);
 export const fmtMoney = (n) => `£${(n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // Mirrors the server's normalizeBarcode() (server/catalog.js): pads a short numeric code up, and strips one
